@@ -1,0 +1,768 @@
+NOTE from MF 2015-06-17: it may be better to use varchar(n) fields instead of text fields in many of the queries below (any time you know the length of the text will be less than some moderate n).
+
+CREATION LOGIC OF existing_plants Table
+
+
+1.Create a csv file named eia860gen_csv containing the following columns utility_id,utility_name,plant_code,plant_name,
+generator_id,primemover,nameplate_cap,summer_cap,winter_cap,operating_year extracted from the GeneratorY2012.xlsx 
+which is a part of EIA 860 form.
+2. Add a customized column named aer_fuel_code (Aggregated Fuel Code).
+3. The aer_fuel_code is derived from the values of Energy Source1 (Primary Energy Source) following the convention
+mentioned in "Table 6 - Fuel Codes" of "Content and Layout form of The Form EIA-923" (MS Word file).
+4.A table named eia860gen is now created in postgresql and the values of the csv file eia860gen are imported 
+as rows to the  eia860gen table.
+
+CREATE TABLE eia860gen
+(
+  utility_id integer,
+  utility_name text,
+  
+plant_code integer,
+  plant_name text,
+  
+generator_id text,
+  primemover text,
+  aer_fuel_code text,
+  
+nameplate_cap double precision,
+  summer_cap double precision,
+  
+winter_cap double precision,
+  operating_year integer
+)
+
+Since we want to have the same fuel and heat rate for each primemover, we have consolidated the CT/CA into one "CC" type.
+The aer_fuel_code has also been updated for 'CC' types as "RFO" which is the predominant one.
+
+UPDATE eia860gen set primemover='CC' 
+WHERE plant_code=54646 AND primemover IN('CA','CT');
+
+5.Remove the plant with plant_code=56338 and plant_name="Kahuku Wind Power LLc" having primemover="BA". 
+This is removed from the table as it's status is shown as "OS" which is Out of service – was not used for 
+some or all of the reporting period and is NOT expected to be returned to service in the next calendar year.
+
+
+6.Create a csv file named eia923_csv containing the following columns plant_code,plant_name,utility_name,utility_id,
+primemover,reported_fuel_code,aer_fuel_code,electric_fuel_mmbtu,net_gen_mwh,year,eia_sector extracted from the 
+EIA923_Schedules_2_3_4_5_2012_Final_Release_12.04.2013.xlsx 
+which is a part of EIA 923 form.
+
+7.A table named eia923 is now created in postgresql and the values of the csv file eia923_csv are imported 
+as rows to the  eia923 table.
+
+CREATE TABLE eia923
+(
+  plant_code integer,
+  plant_name text,
+  
+utility_name text,
+  utility_id integer,
+  
+primemover text,
+  reported_fuel_code text,
+  
+aer_fuel_code text,
+  electric_fuel_mmbtu double precision,
+  
+net_gen_mwh double precision,
+  year integer, eia_sector integer
+)
+
+8. The following updates were made to the eia923 table :
+
+a. For plant_code=10334 which is "H Power" Plant, the 3 reported aer_fuel_code which are DFO,MLG,OTH 
+have been clubbed into MLG for simplification as the corresponding entry for that plant_code in eia860gen has only 
+one entry which shows Energy Source1 as MSW which is basically MLG in AER Fuel Code.
+
+UPDATE eia923
+SET aer_fuel_code = CASE
+	WHEN plant_code = 10334 THEN 'MLG' 
+	ELSE aer_fuel_code
+    END;
+
+b. For plant_code=10673 which is "AES Hawaii" Plant, the 3 reported  aer_fuel_code which are COL,DFO,OTH,woo 
+have been clubbed into COL for simplification as the corresponding entry for that plant_code in eia860gen has only 
+one entry which shows Energy Source1 as BIT which is basically COL in AER Fuel Code.
+
+UPDATE eia923
+SET aer_fuel_code = CASE
+	WHEN plant_code = 10673 THEN 'COL' 
+	ELSE aer_fuel_code
+    END;
+
+
+c. Since we want to have the same fuel and heat rate for each primemover, we have consolidated the CT/CA into one "CC" type.
+The aer_fuel_code has also been updated for 'CC' types as "RFO" which is the predominant one.
+
+UPDATE eia923 set (primemover,aer_fuel_code)=('CC','RFO') 
+WHERE plant_code=54646 AND primemover IN('CA','CT') AND aer_fuel_code IN('DFO','RFO');
+
+
+9. Create theatreates table
+
+CREATE TABLE theatrates AS
+SELECT plant_code, primemover,aer_fuel_code,sum(electric_fuel_mmbtu * 1000) / NULLIF(sum(net_gen_mwh),0) as heat_rate
+FROM eia923
+GROUP BY 1, 2, 3
+ORDER BY 1;
+
+UPDATE theatrates SET (heat_rate) = (0)
+WHERE heat_rate IS NULL;
+
+10.
+
+create table toutput as
+select plant_code, primemover,aer_fuel_code, sum(net_gen_mwh)/(8760*count(distinct year)) as avg_gen_mw,
+  count(distinct year) as n_years
+    from eia923 group by 1, 2,3;
+
+11.
+
+create table tpmcap as
+select plant_code, primemover, aer_fuel_code,
+sum(nameplate_cap) as cap from eia860gen group by 1, 2,3 order by plant_code;
+
+12.
+
+create table tpm as
+select h.*, o.avg_gen_mw, 
+    (select mod(max(1000*year+eia_sector),1000) from eia923 e where 
+    e.plant_code=h.plant_code and e.primemover=h.primemover and e.aer_fuel_code=h.aer_fuel_code) as eia_sector
+    from  theatrates h join toutput o using (plant_code, primemover,aer_fuel_code);
+
+ALTER TABLE tpm ADD COLUMN cap double precision;
+
+update tpm set cap=tpmcap.cap
+from tpmcap where
+tpm.plant_code=tpmcap.plant_code AND tpm.primemover=tpmcap.primemover AND 
+tpm.aer_fuel_code=tpmcap.aer_fuel_code;
+
+update tpm set cap=0
+where cap is null;
+
+13.
+
+create table tgen as
+ select e.plant_code, e.primemover, generator_id, nameplate_cap, 
+  summer_cap, winter_cap, 
+    (e.nameplate_cap/p.cap)*p.avg_gen_mw as avg_mw, 
+    p.aer_fuel_code, p.heat_rate, eia_sector, operating_year,
+    CASE
+	WHEN e.plant_code IN (765,10334,10673,54646) THEN 1 
+	WHEN e.plant_code= 766 AND e.generator_id in('W7','W8') THEN 1
+	ELSE 0
+    END AS baseload, --(Baseload Plants identified from HECO OWITS Final Report)
+    
+    CASE
+	WHEN eia_sector in (3, 5, 7) THEN 1 
+	ELSE 0
+    END AS cogen
+
+    FROM eia860gen e, tpm p 
+    WHERE
+        e.plant_code=p.plant_code AND 
+        e.primemover=p.primemover AND 
+        e.aer_fuel_code=p.aer_fuel_code;
+
+OWITS Final Report : http://www.hnei.hawaii.edu/sites/web41.its.hawaii.edu.www.hnei.hawaii.edu/files/page/2011/11/Oahu%20Wind%20Integration.pdf
+
+14.
+
+create table existing_plants as
+select plant_code, generator_id, primemover, aer_fuel_code,
+    sum((summer_cap+winter_cap)/2) as peak_mw, sum(avg_mw) as avg_mw,
+    sum(avg_mw*heat_rate)/sum(avg_mw) as heat_rate,
+    max(baseload) as baseload, max(cogen) as cogen, max(operating_year) as insvyear
+  from tgen group by 1,2,3,4
+  order by plant_code,generator_id;
+
+ALTER TABLE existing_plants ADD COLUMN load_zone text;
+UPDATE existing_plants SET load_zone='Oahu';
+
+
+15. Create a temporary table named 'tcosts' in postgresql with the following columns utility_name,
+utility_id,primemover,overnight_cost,fixed_o_m,variable_o_m,forced_outage_rate,max_age.
+
+16. Import the rows from the csv file 'tcosts.csv' as the rows of the postgresql table 'tcosts'.
+
+CREATE TABLE tcosts
+(
+  utility_name text,
+  utility_id integer,
+  
+primemover text,
+  overnight_cost double precision,
+  
+fixed_o_m double precision,
+  variable_o_m double precision,
+  
+forced_outage_rate double precision,
+  max_age double precision
+)
+
+
+17. Create a table 'existing_plants_costs' from the tcosts,eia860gen tables
+
+CREATE TABLE existing_plants_costs AS
+SELECT m.plant_code,m.generator_id,m.primemover,m.aer_fuel_code,t.overnight_cost,t.fixed_o_m,t.variable_o_m,t.forced_outage_rate,t.max_age 
+FROM tcosts t, eia860gen m
+WHERE t.utility_id = m.utility_id AND m.primemover=t.primemover
+GROUP BY 1,2,3,4,5,6,7,8,9
+ORDER BY m.plant_code,m.generator_id;
+
+NOTE : Here the overnight_cost is in $/kW,fixed_o_m is in $/kW-year, variable_o_m is in $/MWh.
+But as per Dr. Fripp's suggestion, the variable_o_m is changed into $/KWh.
+Hence 
+
+UPDATE existing_plants_costs
+SET variable_o_m = (variable_o_m/1000);
+
+***************************************************************
+Note:Update Deepak's generator_costs to include fuel for Wind and Solar Resorces.
+UPDATE generator_costs SET fuel='WND' 
+WHERE technologies ='Wind';
+
+UPDATE generator_costs SET fuel='SUN' 
+WHERE technologies IN ('DistPV_peak','DistPV_flat','CentralPV');
+
+INSERT INTO existing_plants_costs (plant_code,generator_id,primemover,aer_fuel_code,
+overnight_cost,fixed_o_m,variable_o_m,forced_outage_rate,max_age)
+SELECT E.plant_code,E.generator_id,E.primemover,E.aer_fuel_code,G.capital_cost_per_kw,
+ROUND(CAST(fixed_o_m AS numeric),3),ROUND(CAST(G.variable_o_m AS numeric),3),ROUND(CAST(G.forced_outage_rate AS numeric),2),G.max_age_years
+FROM existing_plants E, generator_costs G
+WHERE G.fuel in ('WND','SUN') AND E.aer_fuel_code=G.fuel AND G.technologies IN('Wind','CentralPV')
+
+
+****************************************************************
+18. Cretae table existing_plants_agg from tables 'existing_plants' and 'exisiting_plants_costs'
+
+
+CREATE TABLE existing_plants_agg AS
+SELECT h.*,t.overnight_cost,t.fixed_o_m,t.variable_o_m,t.forced_outage_rate,t.max_age 
+FROM existing_plants h, existing_plants_costs t
+WHERE t.plant_code = h.plant_code AND t.generator_id=h.generator_id
+ORDER BY h.plant_code,h.generator_id;
+
+19.
+Check and fix plants that have higher production than theoretically possible
+
+update existing_plants_agg
+  set peak_mw = avg_mw / (1-forced_outage_rate) where avg_mw > peak_mw * (1-forced_outage_rate);
+
+20.
+
+
+ALTER TABLE existing_plants_agg ADD COLUMN scheduled_outage_rate double precision;
+
+21.
+
+Set the scheduled outage rate for baseload plants just high enough to yield the 
+average output that has occurred historically
+
+UPDATE existing_plants_agg SET scheduled_outage_rate = 
+CASE 
+	WHEN baseload=1 THEN (1-(avg_mw/(peak_mw *(1-forced_outage_rate)))) 
+	ELSE 0
+END;
+
+
+22. Create table
+
+CREATE TABLE equivalent_existing_plants_cluster AS
+	SELECT m.technology,m.load_zone, m.max_capacity
+	CASE 
+	WHEN m.technology = 'Wind' THEN c.turbine_id 
+	WHEN m.technology = 'CentralPV' THEN m.site
+	END AS site 
+	FROM max_capacity m, cluster_turbine c
+	WHERE m.technology = 'Wind' AND c.turbine_id in ( 18,27,29,33,36,38,41,45,48,50,53,56)
+	OR (m.technology = 'Wind' AND c.turbine_id in ( 141,143,146,147,149,151,155,156,157,158,163,164,165,169,173,174,176,181,183,187,188,191,198,199,200,203,212,213))
+	OR (m.technology = 'CentralPV' AND m.site = 175)
+	GROUP BY 1,2,3
+	ORDER BY 1,3;
+
+
+23. 
+
+ALTER TABLE equivalent_existing_plants_cluster ADD COLUMN equivalent_existing_plant text;
+
+24. 
+
+UPDATE equivalent_existing_plants_cluster SET equivalent_existing_plant =
+CASE 
+WHEN technology = 'Wind' AND site in ( 18,27,29,33,36,38,41,45,48,50,53,56) THEN 'Kahuku Wind Farm'
+WHEN technology = 'Wind' AND site in ( 141,143,146,147,149,151,155,156,157,158,163,164,165,169,173,174,176,181,183,187,188,191,198,199,200,203,212,213) THEN 'Kawailoa Wind Farm'
+WHEN technology = 'CentralPV' AND site = 175 THEN 'Kalaeloa Solar-Two Farm'
+END;
+
+ALTER TABLE equivalent_existing_plants_cluster ADD COLUMN max_capacity integer;
+
+UPDATE equivalent_existing_plants_cluster SET max_capacity = 2.5
+WHERE technology ='Wind'
+
+UPDATE equivalent_existing_plants_cluster SET max_capacity = max_capacity_old.max_capacity
+FROM 
+max_capacity_old
+WHERE equivalent_existing_plants_cluster.technology='CentralPV' 
+AND equivalent_existing_plants_cluster.site = max_capacity_old.site
+
+25.
+
+CREATE TABLE existing_plants_cap_factor
+(
+  technology text,
+  
+load_zone text,
+  
+site text,
+  
+date_time timestamp with time zone,
+  
+cap_factor double precision
+)
+
+26.
+
+INSERT INTO existing_plants_cap_factor (technology,site,date_time,cap_factor)
+SELECT T1.technology,T1.equivalent_existing_plant as site,A1.timestamp as date_time,SUM(A1.windpower)/SUM(2500) as cap_factor
+FROM equivalent_existing_plants_cluster T1, turbine_hourly A1
+WHERE (T1.technology = 'Wind' AND T1.site = A1.turbine_id )
+GROUP BY 1,2,3
+UNION
+SELECT T1.technology,T1.equivalent_existing_plant as site,B1.complete_time_stamp as date_time,B1.cap_factor as cap_factor
+FROM equivalent_existing_plants_cluster T1, central_pv_hourly B1
+WHERE (T1.technology = 'CentralPV' AND T1.site = B1.site_id)
+GROUP BY 1,2,3,4;
+
+
+27.
+
+ALTER TABLE existing_plants ADD COLUMN intermittent integer;
+
+UPDATE existing_plants SET intermittent =
+CASE 
+WHEN primemover IN ('WT','PV') THEN 1
+ELSE 0
+END;
+
+28.
+NOTE : Not needed anymore.
+
+UPDATE existing_plants_agg SET scheduled_outage_rate = 
+CASE 
+	WHEN baseload=1 THEN (1-(avg_mw/(peak_mw *(1-forced_outage_rate)))) 
+	ELSE 0
+END;
+
+29.
+For removing the turbine's already included for replicating the equivalent existing plants.
+
+CREATE TABLE cluster_turbine_mod1 AS
+SELECT DISTINCT A1.* 
+FROM cluster_turbine A1,equivalent_existing_plants_cluster B1
+WHERE A1.turbine_id IN
+(SELECT turbine_id FROM cluster_turbine
+EXCEPT SELECT site FROM equivalent_existing_plants_cluster WHERE technology = 'Wind')
+ORDER BY turbine_id;
+
+
+30.
+
+CREATE TABLE cluster_hourly_mod1 AS
+	SELECT  T1.cluster_id, A1.timestamp, 
+	SUM(A1.windpower)/SUM(2500) AS capacity_factor 
+  	FROM cluster_turbine_mod1 T1, turbine_hourly A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id )
+  	GROUP BY T1.cluster_id, A1.timestamp;
+31.
+
+CREATE TABLE central_pv_hourly_mod1 AS 
+SELECT A1.* 
+FROM central_pv_hourly A1
+WHERE site_id IN
+(SELECT site_id FROM central_PV
+EXCEPT SELECT site FROM equivalent_existing_plants_cluster WHERE technology = 'CentralPV');
+
+
+32.
+
+CREATE TABLE cap_factor_mod1
+(
+technology text,
+  
+load_zone text,
+  
+site integer,
+  
+orientation text,
+  
+date_time timestamp with time zone,
+  
+cap_factor double precision
+)
+
+
+33.
+
+INSERT INTO cap_factor_mod1 (site,date_time,cap_factor)
+SELECT cluster_id AS site, timestamp AS date_time,capacity_factor AS cap_factor
+FROM cluster_hourly_mod1;
+
+UPDATE cap_factor_mod1 SET (technology,load_zone,orientation)=('Wind','Oahu','na');
+
+INSERT INTO cap_factor_mod1 (site,date_time,cap_factor)
+SELECT site_id AS site, complete_time_stamp AS date_time,cap_factor AS cap_factor
+FROM central_pv_hourly_mod1;
+
+UPDATE cap_factor_mod1 SET (technology,load_zone,orientation)=('CentralPV','Oahu','na')
+WHERE technology IS NULL ;
+
+INSERT INTO cap_factor_mod1 (technology,load_zone,orientation,site,date_time,cap_factor)
+SELECT technology,load_zone,orientation,site,date_time,cap_factor
+FROM cap_factor WHERE technology='DistPV' ;
+
+34.
+
+
+CREATE TABLE max_capacity_mod1
+(
+  technology text,
+  load_zone text,
+  site integer,
+  orientation text,
+  max_capacity double precision
+)
+
+35.
+
+INSERT INTO max_capacity_mod1 (site,max_capacity)
+SELECT cluster_id AS site,(2.5*count( DISTINCT T1.turbine_id )) AS max_capacity
+FROM cluster_turbine_mod1 T1
+GROUP BY T1.cluster_id;
+
+UPDATE max_capacity_mod1 SET (technology,load_zone,orientation)=('Wind','Oahu','na')
+WHERE technology IS NULL ;
+
+INSERT INTO max_capacity_mod1 (site,max_capacity)
+SELECT site_id AS site, net_pv_capacity AS max_capacity
+FROM cell_central_pv_capacity
+WHERE site_id IN
+(SELECT site_id FROM cell_central_pv_capacity
+EXCEPT SELECT site FROM equivalent_existing_plants_cluster WHERE technology = 'CentralPV')
+ORDER BY 1;
+
+UPDATE max_capacity_mod1 SET (technology,load_zone,orientation)=('CentralPV','Oahu','na')
+WHERE technology IS NULL ;
+INSERT INTO max_capacity_mod1 (technology,load_zone,site,orientation,max_capacity)
+SELECT technology,load_zone,site,orientation,max_capacity
+FROM max_capacity WHERE technology='DistPV' ;
+
+
+36.
+
+ALTER TABLE existing_plants RENAME TO existing_plants_old;
+ALTER TABLE existing_plants_agg RENAME TO existing_plants;
+
+
+37.
+
+In fuel_costs table,
+
+
+
+UPDATE existing_plants SET aer_fuel_code_orign = aer_fuel_code
+
+# MF NOTE 2015-06-17: sometime after this, more substitutions were made:
+WOO -> LSFO
+OOG -> LSFO
+
+UPDATE existing_plants SET aer_fuel_code = 
+CASE
+	WHEN aer_fuel_code_orign = 'RFO' THEN 'LSFO'
+	WHEN aer_fuel_code_orign = 'DFO' THEN 'High Sulfur Diesel'
+	WHEN aer_fuel_code_orign = 'ORW' THEN 'Biodiesel'
+	ELSE aer_fuel_code_orign
+END
+
+UPDATE existing_plants SET aer_fuel_code = replace(aer_fuel_code,' ','-')
+
+UPDATE fuel_costs SET fuel_type = replace(fuel_type,' ','-')
+
+
+38. For Including Distributed PV
+
+INSERT INTO existing_plants VALUES
+(100000, 'DistPV', 'PV', 'SUN', 210, 210, 0, 0, 0, 2013, 'Oahu', 1, 6865, 0,
+0.088, 0.01, 25, 0, '100000-DistPV', 'SUN')
+
+INSERT INTO equivalent_existing_plants_cluster VALUES
+('DistPV', 'Oahu', 100, 'Existing Distributed PV', 210)
+
+INSERT INTO existing_plants_cap_factor (technology, load_zone, date_time, cap_factor)
+(SELECT technology, load_zone, date_time, cap_factor 
+FROM cap_factor
+WHERE technology='DistPV');
+
+UPDATE existing_plants_cap_factor SET site = '100000-DistPV' 
+WHERE technology='DistPV';
+
+
+
+****************************************************************************************
+In-order to make the cap factor tables recent after changes in the Turbine Classes
+
+CREATE TABLE turbine_temp AS
+SELECT * FROM turbine;
+
+UPDATE turbine_temp
+SET turb_model = CASE
+			WHEN avg_s80 > 8.5 THEN 'C89'
+			WHEN avg_s80 >= 7.5 AND avg_s80 <= 8.5  THEN 'C93'
+			WHEN avg_s80 < 7.5 THEN 'C99'
+		END;
+
+UPDATE turbine_temp
+SET turb_class_type = CASE
+			WHEN turb_model = 'C89' THEN 1
+			WHEN turb_model = 'C93' THEN 2
+			WHEN turb_model = 'C99' THEN 3
+		END;
+
+CREATE TABLE turbine_hourly_temp AS
+SELECT * FROM turbine_hourly;
+
+
+UPDATE turbine_hourly_temp SET windpower = WindPower(turbine_temp.turb_class_type,turbine_hourly_temp.v_200m_s80,(turbine_temp.elevation+turbine_temp.turb_height),turbine_hourly_temp.tsfc)
+FROM turbine_temp
+WHERE turbine_hourly_temp.turbine_id = turbine_temp.turbine_id;
+
+CREATE TABLE turb_power_temp1 AS
+(SELECT turbine_id, 
+AVG (windpower) AS avg_windpower, SUM(windpower):: double precision, COUNT(windpower)
+FROM turbine_hourly_temp
+WHERE extract(year from timestamp)=2007 OR extract(year from timestamp)=2008 
+GROUP BY turbine_id);
+
+
+UPDATE turbine_temp SET (avg_windpower) = (turb_power_temp1.avg_windpower) 
+FROM turb_power_temp1
+WHERE turbine_temp.turbine_id = turb_power_temp1.turbine_id;
+
+
+UPDATE turbine_temp SET annual_avg_capacity_factor = (avg_windpower/2500);
+
+CREATE TABLE cluster_hourly_temp AS
+	SELECT  T1.cluster_id, A1.timestamp, 
+	SUM(A1.windpower)/SUM(2500) AS capacity_factor 
+  	FROM cluster_turbine T1, turbine_hourly_temp A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id )
+  	GROUP BY T1.cluster_id, A1.timestamp;
+
+
+
+CREATE TABLE existing_plants_cap_factor_temp AS
+SELECT * FROM existing_plants_cap_factor;
+
+INSERT INTO existing_plants_cap_factor_temp (technology,site,date_time,cap_factor)
+SELECT T1.technology,T1.equivalent_existing_plant as site,A1.timestamp as date_time,SUM(A1.windpower)/SUM(2500) as cap_factor
+FROM equivalent_existing_plants_cluster T1, turbine_hourly_temp A1
+WHERE (T1.technology = 'Wind' AND T1.site = A1.turbine_id )
+GROUP BY 1,2,3;
+
+DELETE FROM existing_plants_cap_factor_temp
+WHERE site = '57087-1';
+
+DELETE FROM existing_plants_cap_factor_temp
+WHERE site = '57529-1';
+
+UPDATE existing_plants_cap_factor_temp SET site = '57087-1'
+WHERE site = 'Kahuku Wind Farm';
+
+UPDATE existing_plants_cap_factor_temp SET site = '57529-1'
+WHERE site = 'Kawailoa Wind Farm';
+
+UPDATE existing_plants_cap_factor_temp SET load_zone = 'Oahu'
+WHERE load_zone IS NULL;
+
+# MF note 2015-06-18: it appears that the following two commands were used here but not added to the script:
+alter table existing_plants_cap_factor rename to existing_plants_cap_factor_old;
+alter table existing_plants_cap_factor_temp rename to existing_plants_cap_factor;
+
+UPDATE existing_plants_cap_factor SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+UPDATE existing_plants_cap_factor_old SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+CREATE TABLE cluster_hourly_mod1_temp AS
+	SELECT  T1.cluster_id, A1.timestamp, 
+	SUM(A1.windpower)/SUM(2500) AS capacity_factor 
+  	FROM cluster_turbine_mod1 T1, turbine_hourly_temp A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id )
+  	GROUP BY T1.cluster_id, A1.timestamp;
+
+
+
+UPDATE cap_factor SET cap_factor = A.capacity_factor*0.8747
+FROM cluster_hourly_mod1_temp A
+WHERE cap_factor.technology = 'Wind'
+AND cap_factor.site = A.cluster_id
+AND cap_factor.date_time = A.timestamp;
+************************************************************************************************************
+
+
+The following parts were added by Matthias Fripp, 2015-06-17. 
+They should eventually be incorporated earlier in the workflow as much as possible.
+
+TODO: double-check the heat rates for cogen plants to make sure they reflect the price HECO pays
+for power from these plants.
+
+# TODO: make sure the cogen are marked as baseload, and the ones reported by heco as baseload are actually must_run
+
+# rename and update columns to reflect naming and usage in the pyomo version of switch
+ALTER TABLE existing_plants RENAME intermittent to variable;
+ALTER TABLE existing_plants RENAME baseload to must_run;
+ALTER TABLE existing_plants add column baseload smallint;
+
+# AES plant is not really cogen, even though it's identified as EIA sector 3
+UPDATE existing_plants SET cogen=0 WHERE plant_code=10673;
+
+# identify truly fixed baseload plants (run at same level all the time, as far as we know)
+# This includes all the true cogen plants, since they're out of the power company's control.
+# However, it doesn't include any HECO plants or AES, since they get backed down at night.
+# (they are must_run instead)
+UPDATE existing_plants SET baseload = case when cogen=1 then 1 else 0 end;
+
+# treat the (only) combined cycle plant as two separate single-chain combined cycle units
+# (i.e., each one is one CT and half of a ST)
+# (this is different from what GE did for HSIS; see section 6.1.5.1 of HSIS 2012 report
+# however, this shouldn't make too much difference since the plant will run all the time.)
+UPDATE existing_plants 
+    SET generator_id = concat('CC', substring(generator_id from 3)),
+        peak_mw = peak_mw + 0.5 *
+            (select sum(peak_mw) from existing_plants where plant_code = 54646 and generator_id = 'ST'),
+        avg_mw = avg_mw + 0.5 * 
+            (select sum(avg_mw) from existing_plants where plant_code = 54646 and generator_id = 'ST')
+    WHERE plant_code=54646 and generator_id like 'C%' and primemover = 'CC';
+DELETE FROM existing_plants WHERE plant_code = 54646 AND generator_id = 'ST';
+
+# update the forced outage rate calculation based on the adjusted baseload status and new CC plant sizes
+# (this is only used to set the output level for fixed baseload plants)
+UPDATE existing_plants SET scheduled_outage_rate = 
+CASE 
+	WHEN baseload=1 THEN (1-(avg_mw/(peak_mw *(1-forced_outage_rate)))) 
+	ELSE 0
+END;
+
+# create a list of plant names for easier reference later
+# the file existing_plant_names.txt was created manually from the eia860 database listing
+CREATE TEMPORARY TABLE existing_plants_names (
+    plant_code int primary key,
+    plant_name varchar(15)
+);
+
+# This uses the \COPY command in the psql command-line interface to 
+# import the file from the current directory on the client.
+# note: it would be nice to use the first query below (with a tab-delimited file), but it doesn't work for some reason.
+# \COPY existing_plants_names FROM 'existing_plant_names.txt' WITH (FORMAT CSV, DELIMITER E'\t', HEADER);
+\COPY existing_plants_names FROM 'existing_plant_names.csv' WITH (FORMAT CSV, HEADER);
+
+# add the dummy solar record
+insert into existing_plants_names (plant_code, plant_name) values (100000, 'Solar');
+
+ALTER TABLE existing_plants ADD COLUMN plant_name varchar(15);
+update existing_plants p
+    set plant_name = n.plant_name
+    from existing_plants_names n 
+    where p.plant_code = n.plant_code;
+update existing_plants
+    set plant_name = plant_code
+    where plant_name is null;
+
+# create a technology label for each unique existing unit
+# note: cogen are also baseload, so the flag gets set as cogen or base (cogen_notbase would be an error)
+# note: this could use the same technology for identical units at different plants 
+# (unless they're baseload with different capacity factors), but for now we create one technology type per plant.
+ALTER TABLE existing_plants ADD COLUMN technology text;
+UPDATE existing_plants 
+    SET technology = concat_ws('_', 
+        plant_name,
+        case when primemover in 
+            (select primemover from existing_plants group by 1 having count(distinct aer_fuel_code) > 1)
+            then aer_fuel_code else null end, 
+        peak_mw, 'MW',
+        primemover, 
+        case when cogen=1 then 
+            case when baseload=1 then 'cogen' else 'cogen_notbase' end
+        else 
+            case when baseload=1 then 'base' else null end
+        end
+    );
+
+# check the range of several fields before lumping them together into a single technology profile
+SELECT technology,
+        concat(min(must_run), '-', max(must_run)) as must_run,
+        concat(min(max_age), '-', max(max_age)) as max_age,
+        concat(min(scheduled_outage_rate), '-', max(scheduled_outage_rate)) as scheduled_outage_rate,
+        concat(min(forced_outage_rate), '-', max(forced_outage_rate)) as forced_outage_rate,
+        concat(min(variable_o_m), '-', max(variable_o_m)) as variable_o_m
+    FROM existing_plants
+    GROUP BY 1 
+    HAVING COUNT(*) > 1
+    ORDER BY 1;
+# Everything looks OK. Three units from plant 10194/Chevron will have their scheduled outage rate averaged
+# together, which is fine, because they would have gotten the same avg_mw in the first place if they had all 
+# been reported as LSFO (instead of WOO and OOG which were later converted to LSFO).
+
+CREATE TABLE existing_plants_gen_tech AS
+    SELECT technology,
+            avg(max_age) as max_age,
+            avg(scheduled_outage_rate) as scheduled_outage_rate,
+            avg(forced_outage_rate) as forced_outage_rate,
+            0 as resource_limited,
+            min(variable) as variable,
+            min(baseload) as baseload,
+            min(must_run) as must_run,
+            min(case when primemover in ('WT', 'PV') then 0 else 1 end) as dispatchable,
+            min(cogen) as cogen,
+            0 as competes_for_space,
+            avg(variable_o_m) as variable_o_m
+    FROM existing_plants
+    GROUP BY 1;
+
+# assign unique IDs for each project, as it will appear in switch
+# (a project may aggregate together several identical units)
+# In principle, identical units at different plants in the same zone could be
+# aggregated into a single project, but we keep them separate here to make it 
+# easier to interpret the dispatch schedule.
+create temporary table project_info as
+    select load_zone, plant_name, technology, 
+        concat(load_zone, '_', plant_name, '_', 
+            string_agg(generator_id, '_'  order by generator_id)) as project_id
+        from existing_plants
+        group by 1, 2, 3;
+
+alter table existing_plants add column project_id varchar(50);
+update existing_plants e
+    set project_id = p.project_id
+    from project_info p
+    where p.load_zone = e.load_zone and p.plant_name = e.plant_name and p.technology = e.technology;
+
+# add a matching project_id column to existing_plants_cap_factor
+alter table existing_plants_cap_factor add column project_id varchar(50);
+create temporary table site_project as 
+    select concat(plant_code, '-', generator_id) as site, project_id
+        from existing_plants;
+alter table site_project add primary key (site);
+update existing_plants_cap_factor c
+    set project_id = s.project_id
+    from site_project s
+    where s.site = c.site;
+
+# check that the project_id assignments make sense and none are missing
+select distinct technology, load_zone, site, project_id 
+    from existing_plants_cap_factor;
+

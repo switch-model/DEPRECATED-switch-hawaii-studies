@@ -1,0 +1,288 @@
+# NOTE: MF added code at the bottom which should be integrated into the main body of this script if it is run again!
+
+Creation of New Study Dates and Study Hours Table
+
+1.
+
+create table tdates
+  select date(date_time) as date_ca
+    from system_load group by 1
+    having count(*) = 24;
+
+2.
+
+CREATE TABLE tdatelist1 AS
+(select row_number() OVER(),date_hi,extract(year from date_hi), extract(month from date_hi) as month_of_year, random() as ord from tdates GROUP BY 2,3,4,5 order by 3,4,5);
+
+3.
+
+CREATE TABLE tdaysofyear AS
+SELECT row_number() OVER() AS rownumber,extract(day from dd) AS date_of_year
+FROM generate_series('2007-01-01'::timestamp,'2008-12-31'::timestamp, '1 day') as dd;
+
+4.
+
+CREATE TABLE tdatelist2 AS
+(select B.date_hi,B.month_of_year, B.ord, a.date_of_year AS rank 
+from tdaysofyear A, tdatelist1 B
+WHERE B.row_number = A.rownumber);
+
+
+5.
+
+create table tgroups as 
+select date_hi, month_of_year, rank, 
+    mod(month_of_year-1,2)+1 as mgroup, 
+    CASE 
+    WHEN rank <= 28 THEN mod(rank-1, 7)+1 
+    ELSE NULL
+    END AS rgroup
+    from tdatelist2;
+
+6.
+
+Wind Turbine Efficiency Reduce by 12.526768%
+
+7.
+
+create table tperiods as
+select hournum as periodnum from hours where hournum between 1 and 4;
+
+CREATE TABLE hours AS
+SELECT date_time, row_number() OVER() AS hournum FROM system_load;
+
+
+create table tmonths (month_of_year smallint, days_in_month double precision);
+insert into tmonths values 
+  (1, 31), (2, 28), (3, 31), (4, 30), (5, 31), (6, 30),
+  (7, 31), (8, 31), (9, 30), (10, 31), (11, 30), (12, 31);
+
+8.
+
+create table tselect as
+select d.mgroup, d.rgroup,
+  mod(extract(hour from h.date_time)::int,2) as hgroup, c.technology, 
+  avg(c.cap_factor) as avg_cap_factor, 
+  count(distinct c.date_time) as n_samples 
+  from cap_factor c join hours h on h.date_time=c.date_time 
+    join tgroups d on d.date_hi = date(h.date_time)
+  group by 1, 2, 3, 4;
+
+
+9.
+
+select a.mgroup, a.rgroup, a.hgroup,
+SQRT(AVG(POWER(b.cap_factor - a.avg_cap_factor, 2))) as RMSE
+from tselect a, (select technology, avg(cap_factor) as cap_factor from cap_factor where technology not in ('CentralPV')
+group by 1) as b
+where a.technology = b.technology
+group by 1,2,3
+order by 4
+
+select to_char(date_hi,'Day') as day, count(*) as n 
+from tgroups where mgroup=1 and rgroup=5 
+group by 1 order by n desc;
+
+From this, we find out that the odd months in rgroup 5 have the lowest RMSE.
+# odd numbered months, rank group 5, seems to have a reasonable average capacity factor and 
+distribution of weekdays vs weekends and minimum rmse
+
+
+10.
+
+CREATE TABLE tdatelist2_copy AS
+SELECT * FROM tdatelist2;
+
+
+delete from tdatelist2 where rank > 28 or mod(rank-1, 7)+1 <> 5; 
+
+
+create table tdatelist_next as
+select distinct on(rank,month_of_year) date_hi, month_of_year,ord,rank
+from
+(select date_hi,month_of_year,rank,ord from tdatelist2
+group by 1,2,3,4
+order by month_of_year,ord) dd
+order by rank, month_of_year,ord
+
+
+
+For re-ranking again
+
+UPDATE tdatelist_next set rank = case
+WHEN rank = 5 then 1
+WHEN rank = 12 then 2
+when rank = 19 then 3
+when rank = 26 then 4
+END;
+
+
+\set start_year 2015
+\set years_per_period 3
+
+create table tstudy_dates_avg_temp1 as
+select (p.periodnum-1) * :years_per_period + :start_year as period, l.date_hi, l.month_of_year, 
+(m.days_in_month-1)* (:years_per_period) as hours_in_sample
+from tperiods p,tmonths m, tdatelist_next l
+where (l.rank=p.periodnum and l.month_of_year=m.month_of_year)
+order by 1,3,2;
+
+
+
+
+create table tmaxdate as
+select distinct on (extract(month from date_time)) date_time, 
+extract(month from date_time) as month_of_year, system_load 
+from system_load
+order by extract(month from date_time), system_load desc;
+
+********************************************************************************************
+#NOT USED HERE# 
+#For selecting maximum load date according to matching month and year of avergae days
+select distinct on (extract(year from date_time), extract(month from date_time)) date_time, 
+extract(month from date_time) as month_of_year, system_load 
+from system_load
+order by extract(year from date_time), extract(month from date_time), system_load desc;
+**********************************************************************************************
+
+
+create table tmaxdate_match as
+select a.date_time::date as date_hi, 
+a.month_of_year,(row_number() OVER (ORDER BY a.month_of_year) - 1) % 4 + 1  as rank
+from tmaxdate a, tstudy_dates_avg_temp1 b
+where extract(month from a.date_time) = extract(month from b.date_hi)
+order by 2;
+
+
+********************************************************************************************
+# NOT USED#
+#For selecting maximum load date according to matching month and year of avergae days
+create table tmaxdate_match as 
+select a.date_time::date as date_hi, 
+a.month_of_year,(row_number() OVER (ORDER BY a.month_of_year) - 1) % 4 + 1  as rank
+from tmaxdate a, tstudy_dates_avg_temp1 b
+where extract(year from a.date_time) = extract(year from b.date_hi)
+and extract(month from a.date_time) = extract(month from b.date_hi)
+order by 2;
+********************************************************************************************
+
+
+
+\set start_year 2015
+\set years_per_period 3
+
+insert into tstudy_dates_avg_temp1 (period, date_hi, month_of_year, hours_in_sample)
+select (p.periodnum-1) * :years_per_period + :start_year as period, 
+a.date_hi, a.month_of_year,
+:years_per_period as hours_in_sample
+from tmaxdate_match a, tperiods p
+where a.rank=p.periodnum
+order by 1,3,2;
+
+# To avoid having duplicate study_dates present in both avg and peak days.
+# Nothing was found.
+ 
+select date_hi from tstudy_dates_avg_temp1 
+group by date_hi 
+having count(*) > 4;
+
+CREATE TABLE study_date_new AS
+SELECT period, (mod(period, 100)) * 10000000 + mod(extract(year from date_hi)::int, 100) * 100000 + 
+ extract(month from date_hi)*1000 + extract(day from date_hi)*10 + 
+ (case 
+ when hours_in_sample < 80 then 1
+ else 0
+ end) as study_date,
+month_of_year, date_hi as date, hours_in_sample
+FROM tstudy_dates_avg_temp1;
+
+ALTER TABLE study_date_new ADD PRIMARY KEY (study_date);
+
+
+CREATE TABLE date_time AS
+SELECT DISTINCT date_time::date as date, date_time,
+EXTRACT(HOUR from date_time) as hour_of_day
+FROM system_load
+ORDER by date_time;
+
+
+CREATE TABLE study_hour_new AS
+SELECT s.study_date, 
+(((mod(s.period, 100)) * 10000 + s.month_of_year * 100 + d.hour_of_day) * 10000 + 
+(mod(extract(year from s.date)::int, 10) * 1000 + extract(day from s.date)*10) +
+ (case 
+ when s.hours_in_sample < 80 then 1
+ else 0
+ end)) as study_hour,
+d.hour_of_day, d.date_time
+FROM study_date_new s, date_time d 
+WHERE d.date = s.date
+order by 1,2;
+
+
+ALTER TABLE study_hour_new ADD PRIMARY KEY (study_date, study_hour, date_time); 
+
+##############################################
+The following code was added by Matthias Fripp 2015-06-18.
+Most of it should be moved into the earlier workflow.
+
+
+# Rename the existing study_date and study_hour tables (they can be removed eventually).
+# Then allow study_date and study_hour to hold multiple different time samples,
+# identified by a new "time_sample" column.
+# Then copy the pre-existing "_new" samples into these tables, labeling them "main".
+# Then make a sample called "2007" by shifting the 2015 and 2018 periods from "main"
+# to 2007 and 2008, and omitting the rest.
+
+alter table study_date rename to study_date_first;
+alter table study_date_new rename to study_date_main;
+
+alter table study_hour rename to study_hour_first;
+alter table study_hour_new rename to study_hour_main;
+
+create table study_date (like study_date_main);
+create table study_hour (like study_hour_main);
+alter table study_date add column time_sample varchar(20);
+alter table study_hour add column time_sample varchar(20);
+
+alter table study_date add primary key (time_sample, study_date);
+create index sdh on study_hour (time_sample, study_date, study_hour);
+
+insert into study_date select *, 'main' as time_sample from study_date_main;
+insert into study_hour select *, 'main' as time_sample from study_hour_main;
+
+insert into study_date select *, '2007' as time_sample 
+    from study_date_main where period in (2015, 2018);
+update study_date set 
+        period = case when period = 2015 then 2007 when period = 2018 then 2008 else period end,
+        hours_in_sample = hours_in_sample / 3.0
+    where time_sample = '2007';
+
+insert into study_hour select study_hour_main.*, '2007' as time_sample 
+    from study_hour_main join study_date using (study_date)
+    where time_sample = '2007';
+
+# Make a study_periods table, showing the periods included in each time_sample.
+DROP TABLE IF EXISTS study_periods;
+CREATE TABLE study_periods AS 
+    SELECT DISTINCT time_sample, period 
+        FROM study_date 
+        ORDER BY 1, 2;
+alter table study_periods add primary key (time_sample, period);
+
+# create some extra columns to support the pyomo version of switch,
+# which needs more data on each time series (a.k.a. study_date)
+# (see timescales.py)
+# In the future, these weights should be created in the main workflow above! 
+# (and hours_in_sample can be omitted or calculated from them)
+alter table study_date 
+    add column ts_num_tps int,                     -- number of timepoints in a timeseries
+    add column ts_duration_of_tp double precision, -- duration in hours of each timepoint within a series
+    add column ts_scale_to_period double precision; -- (length of period) = scale_to_period * num_tps * duration_of_tp
+
+update study_date set
+    ts_num_tps = (select count(*) from study_hour) / (select count(*) from study_date);
+update study_date set
+    ts_duration_of_tp = 24.0 / ts_num_tps;
+update study_date set
+    ts_scale_to_period = hours_in_sample / ts_duration_of_tp;

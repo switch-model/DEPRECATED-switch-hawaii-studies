@@ -1,0 +1,458 @@
+*****************
+NOTE: there is extra code added at the end by MF in June 2015. 
+This should be integrated into the main code before running this again.
+*****************
+
+SELECT A1.grid_id, A1.i, A1.j, A1.year, 
+       A1.s10, A1.s50, A1.s80, A1.s100, A1.s200,
+       T1.turbine_id,(T1.v_avg_200m/T1.v_avg_1km) AS ratio,
+       ((T1.v_avg_200m/T1.v_avg_1km)*A1.s10) AS v_200m_s10,
+       ((T1.v_avg_200m/T1.v_avg_1km)*A1.s50) AS v_200m_s50,
+       ((T1.v_avg_200m/T1.v_avg_1km)*A1.s80) AS v_200m_s80,
+       ((T1.v_avg_200m/T1.v_avg_1km)*A1.s100) AS v_200m_s100,
+       ((T1.v_avg_200m/T1.v_avg_1km)*A1.s200) AS v_200m_s200
+  FROM annual_average A1, turbine_location_properties T1
+  WHERE (A1.grid_id = 'E' 
+  AND A1.i = T1.i_1km AND A1.j = T1.j_1km);
+
+
+SELECT grid_id, i, j, date, hour, tsfc, psfc, pcp, q2m, dswrf, dlwrf, 
+       t10, s10, w10, t50, s50, w50, t80, s80, w80, t100, s100, w100, 
+       t200, s200, w200
+  FROM hourly_average where grid_id='D' and i=5 and j=5 order by date, hour;
+
+
+CREATE TABLE turbine
+(
+  grid_id character(1),
+  turbine_id integer NOT NULL,
+  x_turbine double precision,
+  y_turbine double precision,
+  i_1km smallint,
+  j_1km smallint,
+  v_avg_200m real,
+  v_avg_1km real,
+  speed_ratio real,
+  elevation integer,
+  CONSTRAINT turbine_id_pkey PRIMARY KEY (turbine_id)
+)
+WITH (
+  OIDS=FALSE
+);
+ALTER TABLE turbine
+  OWNER TO admin;
+
+SELECT grid_id, i, j, to_timestamp(date||hour, 'YYYYMMDDHH24HST8PDT'), hour,date||hour as trial , tsfc, psfc, pcp, q2m, dswrf, dlwrf, 
+       t10, s10, w10, t50, s50, w50, t80, s80, w80, t100, s100, w100, 
+       t200, s200, w200
+  FROM hourly_average1;
+
+SELECT grid_id, i, j, to_timestamp(date||hour, 'YYYYMMDDHH24HST')::timestamp without time zone, hour,date||hour as trial , tsfc, psfc, pcp, q2m, dswrf, dlwrf, 
+       t10, s10, w10, t50, s50, w50, t80, s80, w80, t100, s100, w100, 
+       t200, s200, w200
+  FROM hourly_average1;
+
+UPDATE turbin_hourly SET timestamp = to_timestamp(date||hour, 'YYYYMMDDHH24HST')::timestamp without time zone;
+
+SET DATESTYLE TO SQL;
+(Can change to ISO)
+
+SET DATESTYLE TO SQL;
+SET TIME ZONE 'UTC';
+
+
+CREATE TABLE turbine_hourly AS
+	SELECT T1.turbine_id, A1.grid_id, A1.i, A1.j, A1.date, A1.hour, A1.tsfc,
+        	T1.turbine_id,(T1.v_avg_200m/T1.v_avg_1km) AS ratio,
+        	(T1.speed_ratio*A1.s10) AS v_200m_s10,
+        	(T1.speed_ratio*A1.s50) AS v_200m_s50,
+        	(T1.speed_ratio*A1.s80) AS v_200m_s80,
+        	(T1.speed_ratio*A1.s100) AS v_200m_s100,
+        	(T1.speed_ratio*A1.s200) AS v_200m_s200
+  	FROM hourly_average A1, turbine T1
+  	WHERE (A1.grid_id = 'E' 
+  	AND T1.i_1km = A1.i AND T1.j_1km = A1.j);
+
+
+******************************************************************************************************
+Original Configuration in postgresql.config file
+
+datestyle = 'iso, mdy'
+#intervalstyle = 'postgres'
+timezone = 'US/Hawaii'
+******************************************************************************************************
+
+******************************************************************************************************
+Modified Configuration in postgresql.config file
+
+datestyle = 'sql, mdy'
+#intervalstyle = 'postgres'
+timezone = 'UTC'
+******************************************************************************************************
+
+SELECT * FROM hourly_trial WHERE extract(day from timestamp1)=03;
+SELECT DISTINCT timestamp1 FROM hourly_trial where extract(hour from timestamp1)=16;
+SELECT DISTINCT timestamp FROM turbine_hourly where extract(year from timestamp)=2007 order by timestamp;
+
+******************************************************************************************************
+(CREATE Temporary turb_temp Table to store the turbine_id and the caluculated avg_s80 from the turbine_hourly
+table from the years 2007 and 2008 excluding the one day of 2009 grouped by Turbine ID)
+
+CREATE TABLE turb_temp AS
+(SELECT turbine_id, 
+AVG (v_200m_s80) AS avg_s80, SUM(v_200m_s80):: double precision, COUNT(v_200m_s80)
+FROM turbine_hourly
+WHERE extract(year from timestamp)=2007 OR extract(year from timestamp)=2008 
+GROUP BY turbine_id);
+******************************************************************************************************
+
+
+******************************************************************************************************
+(UPDATE the turbine table with the avg_s80 values from the Table turb_temp)
+
+UPDATE turbine SET (avg_s80,turbine_id_trial) = (turb_temp.avg_s80, turb_temp.turbine_id) 
+FROM turb_temp
+WHERE turbine.turbine_id = turb_temp.turbine_id;
+******************************************************************************************************
+
+(TRIAL CODE)
+ALTER TABLE hourly_trial ADD COLUMN day_name character(4);
+
+UPDATE hourly_trial
+SET day_name = CASE
+			WHEN extract(day from timestamp1) = 01 THEN 'MOND'
+			WHEN extract(day from timestamp1) = 02 THEN 'TUES'
+			WHEN extract(day from timestamp1) = 03 THEN 'WEDN'
+			ELSE 'OTR'
+		END;
+
+
+******************************************************************************************************
+ALTER TABLE turbine ADD COLUMN turb_model character(4), ADD COLUMN turb_class_type smallint;
+
+UPDATE turbine
+SET turb_model = CASE
+			WHEN avg_s80 >= 10 THEN 'C89'
+			WHEN avg_s80 >= 8.5 AND avg_s80 < 10  THEN 'C93'
+			WHEN avg_s80 >= 7.5 AND avg_s80 < 8.5 THEN 'C96'
+			WHEN avg_s80 >= 6.0 AND avg_s80 < 7.5 THEN 'C99'
+			ELSE 'C99'
+		END;
+
+UPDATE turbine
+SET turb_class_type = CASE
+			WHEN turb_model = 'C89' THEN 1
+			WHEN turb_model = 'C93' THEN 2
+			WHEN turb_model = 'C96' THEN 3
+			WHEN turb_model = 'C99' THEN 4
+			ELSE 4
+		END;
+******************************************************************************************************
+
+
+******************************************************************************************************
+UPDATE turbine_hourly SET windpower = WindPower(turbine.turb_class_type,turbine_hourly.v_200m_s80,(turbine.elevation+turbine.turb_height),turbine_hourly.tsfc)
+FROM turbine
+WHERE turbine_hourly.turbine_id = turbine.turbine_id;
+
+Query returned successfully: 19518048 rows affected, 670457 ms execution time.
+******************************************************************************************************
+
+
+******************************************************************************************************
+CREATE TABLE turb_power_temp AS
+(SELECT turbine_id, 
+AVG (windpower) AS avg_windpower, SUM(windpower):: double precision, COUNT(windpower)
+FROM turbine_hourly
+WHERE extract(year from timestamp)=2007 OR extract(year from timestamp)=2008 
+GROUP BY turbine_id);
+******************************************************************************************************
+
+595.496907074535(2007) + 484.947772143838(2008)
+
+******************************************************************************************************
+UPDATE turbine SET (avg_windpower) = (turb_power_temp.avg_windpower) 
+FROM turb_power_temp
+WHERE turbine.turbine_id = turb_power_temp.turbine_id;
+******************************************************************************************************
+
+******************************************************************************************************
+UPDATE turbine SET annual_avg_capacity_factor = (avg_windpower/2500);
+******************************************************************************************************
+
+
+annual_avg_capacity_factor >=0.283 AND annual_avg_capacity_factor < 0.379 AND cluster_id is NULL
+
+CREATE TABLE cluster AS
+	SELECT  T1.grid_id, T1.turbine_id, T1.date, T1.hour, T1.timestamp, T1.windpower,
+        	(T1.windpower/2500) AS hourly_capacity_factor,
+        	 A1.cluster_id
+  	FROM turbine_hourly T1, turbine_cluster A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id );
+
+
+CREATE TABLE cluster AS
+	SELECT  T1.cluster_id, AVG(A1.x_turbine) AS lat, AVG(A1.y_turbine) AS lon, 
+	(2.5*count( DISTINCT T1.turbine_id )) AS size_MW
+  	FROM cluster_turbine T1, turbine A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id )
+  	GROUP BY T1.cluster_id;
+
+(For Verifying the above table use
+ SELECT distinct A1.turbine_id, A1.x_turbine AS lat, A1.y_turbine AS lon
+FROM cluster_turbine T1, turbine A1
+WHERE A1.turbine_id IN (SELECT turbine_id
+  	FROM cluster_turbine T1
+  	WHERE T1.cluster_id=101) and T1.cluster_id=101;
+)
+
+Add a column "interconnect_id" to cluster table and set it to "1" which is "Honolulu" and can be referenced from the "interconnect" table.
+UPDATE cluster SET interconnect_id = 1;
+
+CREATE TABLE interconnect
+
+(
+  interconnect_id integer NOT NULL,
+ 
+   county text,
+  lat double precision,
+
+   lon double precision,
+  
+   CONSTRAINT interconnect_id_pkey PRIMARY KEY (interconnect_id)
+);
+
+
+
+CREATE TABLE cluster_hourly AS
+	SELECT  T1.cluster_id, A1.timestamp, 
+	SUM(A1.windpower)/SUM(2500) AS capacity_factor 
+  	FROM cluster_turbine T1, turbine_hourly A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.turbine_id = A1.turbine_id )
+  	GROUP BY T1.cluster_id, A1.timestamp;
+
+
+CENTRAL STATION PV
+
+CREATE TABLE cell_central_pv_capacity
+
+(
+  grid_id character(1) NOT NULL,
+  
+i smallint NOT NULL,
+  
+j smallint NOT NULL,
+  
+central_area double precision,
+  
+net_pv_capacity double precision, 
+-- net_pv_capacity=0.75 ( i.e. coverage) * 0.12 ( i.e. efficiency) * 10^(-3) * roof_area (i.e. central_system)
+  
+CONSTRAINT grid_id_ij_pkey1 PRIMARY KEY (grid_id, i, j)
+)
+WITH (
+  OIDS=FALSE
+);
+
+ALTER TABLE cell_central_pv_capacity
+  OWNER TO admin;
+
+
+
+INSERT INTO "cell_pv_power_hourly" (grid_id,i,j,complete_time_stamp,pv_power) 
+SELECT "hourly_average".grid_id,"hourly_average".i,"hourly_average".j,"hourly_average".complete_time_stamp,
+"cell_roofarea_pv_capacity".net_pv_capacity*"hourly_average".dswrf/1000 FROM "hourly_average" INNER JOIN 
+"cell_roofarea_pv_capacity" ON "hourly_average".grid_id="cell_roofarea_pv_capacity".grid_id AND 
+"hourly_average".i="cell_roofarea_pv_capacity".i AND "hourly_average".j="cell_roofarea_pv_capacity".j
+
+
+
+CREATE TABLE central_pv_temp AS
+	SELECT  A1.grid_id, A1.i, A1.j, A1.date, A1.hour, A1.complete_time_stamp, A1.dswrf
+  	FROM cell_central_pv_capacity T1, hourly_average A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.i = A1.i AND T1.j = A1.j);
+
+UPDATE central_pv_temp SET cp_cell = (dswrf*0.001);
+
+CREATE TABLE cluster_solar_hourly AS
+	SELECT  T1.site_id, A1.complete_time_stamp, 
+	SUM(A1.cp_cell*T1.net_pv_capacity)/SUM(T1.net_pv_capacity) AS capacity_factor 
+  	FROM cell_central_pv_capacity T1, central_pv_temp A1
+  	WHERE (T1.grid_id = A1.grid_id 
+  	AND T1.i = A1.i AND T1.j = A1.j)
+  	GROUP BY T1.site_id, A1.complete_time_stamp;
+
+
+
+UPDATE central_pv_temp SET cp_cell_updated = cp 
+FROM turb_power_temp
+WHERE turbine.turbine_id = turb_power_temp.turbine_id;
+
+UPDATE central_pv_temp SET cp_cell_updated = cp_cell;
+
+UPDATE central_pv_temp SET cp_cell_updated = 1 
+WHERE cp_cell_updated> 1;
+
+
+CREATE TABLE central_pv_hourly AS
+	SELECT  site_id, complete_time_stamp, cp_cell_updated AS cap_factor
+  	FROM central_pv_temp ;
+
+
+CREATE TABLE central_pv AS
+	SELECT  A1.site_id, A1.net_pv_capacity as size_MW, T1.interconnect_id
+  	FROM cell_central_pv_capacity A1, interconnect T1
+  	WHERE T1.interconnect_id=1;
+
+
+UPDATE connect_cost SET connect_length_km = connect_distance_temp.connect_length_km
+FROM connect_distance_temp
+WHERE connect_cost.technology = connect_distance_temp.technology AND 
+	connect_cost.site = connect_distance_temp.site;
+
+
+
+CREATE TABLE "study_date"(period smallint, study_date int, month_of_year smallint, 
+date date, hours_in_sample smallint)
+
+CREATE TABLE thours (offset1 smallint)
+
+INSERT INTO thours (offset1) VALUES (0-23);
+
+DELETE FROM timport 
+WHERE rowdata NOT LIKE '178,%'
+
+UPDATE timport SET date_time =  CAST(split_part(rowdata, ',', 6) || ' ' || trim(both '"' from (split_part(rowdata, ',', 7)))as timestamp with time zone)
+
+SELECT (D.date_time + ((T.offset1 || ' hours')::interval)) as date_new
+from timport D, thours T
+
+
+CREATE TABLE system_load1 AS 
+(SELECT load_zone, 
+(C.date_time + ((T.offset1 || ' hours')::interval)) as date_time,
+(CAST(trim(both '"' FROM split_part(C.rowdata,',',(8+T.offset1))) AS REAL)) AS system_load
+FROM timport C, thours T )
+
+
+DELETE FROM system_load1
+WHERE extract(year from date_time) IN (2006,2009,2010,2011)
+
+UPDATE system_load_Scale SET avg_hist = 
+(SELECT AVG(L.system_load)
+FROM system_load L
+WHERE extract(year from date_time) = 2007)
+WHERE year_hist = 2007 AND load_zone ='Oahu'
+
+UPDATE system_load_Scale SET avg_hist = 
+(SELECT AVG(L.system_load)
+FROM system_load L
+WHERE extract(year from date_time) = 2008)
+WHERE year_hist = 2008 AND load_zone ='Oahu'
+
+UPDATE system_load_Scale SET peak_hist = 
+(SELECT MAX(L.system_load)
+FROM system_load L
+WHERE extract(year from date_time) = 2007)
+WHERE year_hist = 2007 AND load_zone ='Oahu'
+
+UPDATE system_load_Scale SET peak_hist = 
+(SELECT MAX(L.system_load)
+FROM system_load L
+WHERE extract(year from date_time) = 2008)
+WHERE year_hist = 2008 AND load_zone ='Oahu'
+
+UPDATE system_load_scale SET scale = ((peak_fore - avg_fore)/(peak_hist - avg_hist))
+
+UPDATE system_load_scale SET offset = (peak_fore - (scale * peak_hist))
+
+
+
+CREATE TABLE system_load_2012 AS
+(SELECT * from system_load 
+WHERE extract(year from date_time) = 2012)
+
+
+DELETE FROM connect_cost
+WHERE TECHNOLOGY IN ('Reciprocating','SCCT_Biodiesel','CCCT_Biodiesel','CCCT_LNG','SCCT_LNG')
+
+
+ALTER TABLE generator_costs ADD COLUMN distributed smallint
+
+UPDATE generator_costs SET distributed = 1
+WHERE technology = 'Wind'
+
+UPDATE generator_costs SET distributed = 0
+WHERE technology NOT IN ('Wind')
+
+DELETE FROM connect_cost 
+WHERE site=175 AND technology='CentralPV'
+
+(To Do : Have to update the connect_costs table with connect_length_km with the recent values as the equivalent 
+sites for exixting plants have been removed from the master tables)
+
+*************************************************************************************
+12.53% Energy Losses for Wind Turbines have been included in the capacity factor. 
+------------------------------------------
+The losses include [From HECO IRP Appendix K, page K-67] :
+Array : 8.0%
+Blade Soiling : 1.0%
+Control & Turbulence : 2.0%
+Line Losses = 2.0%
+------------------------------------------
+Total = 1-[(1-Loss1)(1-Loss2).......] =  12.526768% ~ 12.53%
+
+UPDATE cap_factor SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+UPDATE cap_factor_old SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+UPDATE existing_plants_cap_factor SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+UPDATE existing_plants_cap_factor_old SET cap_factor = (cap_factor*0.8747)
+WHERE technology = 'Wind';
+
+***************************************************************************************
+#Changed Capital Cost for DistPV from $5604 to $4000 as per Dr. Makena Coffman's input.
+update generator_costs set capital_cost_per_kw = 4000
+where technology = 'DistPV'
+
+***************************************************************************************
+Added by Matthias Fripp 2015-06-18:
+(this should be integrated into earlier code in the future)
+
+create index dz on cap_factor (date_time, load_zone);
+
+Insert past years into system_load_scale so they can be used for historical tests.
+(testing past systems using weather patterns from 2007-2008)
+TODO: get scale factors for 2009-2011, and use historical scale factors for 2012-15
+instead of IRP forecasts.
+In the future, it would be easier to tabulate the historical averages and peaks along with
+forecast ones, and then create system_loads_scale with "forecasts" for all years.
+DROP TEMPORARY TABLE IF EXISTS hist_loads;
+-- get one copy of the historical data
+CREATE TEMPORARY TABLE hist_loads AS 
+    SELECT load_zone, year_hist as year, peak_hist as peak, avg_hist as avg
+    FROM system_load_scale 
+    WHERE load_scen_id = 'med' AND year_fore = 2015;
+-- cross-join the historical data to itself (within each load zone)
+-- to create a "forecast" for each historical year
+INSERT INTO system_load_scale 
+    (load_zone, year_hist, load_scen_id, year_fore, peak_hist, peak_fore, avg_hist, avg_fore, scale)
+    SELECT h.load_zone, h.year as year_hist, 'hist' as load_scen_id, 
+        f.year as year_fore, h.peak as peak_hist, f.peak as peak_fore, 
+        h.avg as avg_hist, f.avg as avg_fore,
+        (f.peak - f.avg)/(h.peak - h.avg) as scale
+    FROM hist_loads h join hist_loads f using (load_zone);
+UPDATE system_load_scale 
+    SET "offset" = (peak_fore - (scale * peak_hist)) WHERE "offset" is null;
+
+Add generator unit sizes for new technologies (omitted from original data import).
+alter table generator_costs add column unit_size double precision;
+

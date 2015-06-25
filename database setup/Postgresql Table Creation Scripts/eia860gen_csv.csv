@@ -1,0 +1,30 @@
+19547,Hawaiian Electric Co Inc,764,Honolulu,H8,ST,RFO,50.0,48.6,48.6,1954
+19547,Hawaiian Electric Co Inc,764,Honolulu,H9,ST,RFO,54.4,51.7,51.7,1957
+19547,Hawaiian Electric Co Inc,765,Kahe,K1,ST,RFO,81.6,77.9,77.9,1963
+19547,Hawaiian Electric Co Inc,765,Kahe,K2,ST,RFO,81.6,78.1,78.1,1964
+19547,Hawaiian Electric Co Inc,765,Kahe,K3,ST,RFO,85.8,82.1,82.1,1970
+19547,Hawaiian Electric Co Inc,765,Kahe,K4,ST,RFO,90.9,87.2,87.2,1972
+19547,Hawaiian Electric Co Inc,765,Kahe,K5,ST,RFO,134.9,128.1,128.1,1974
+19547,Hawaiian Electric Co Inc,765,Kahe,K6,ST,RFO,134.9,128.7,128.7,1981
+19547,Hawaiian Electric Co Inc,766,Waiau,W10,GT,DFO,51.3,51.2,51.2,1973
+19547,Hawaiian Electric Co Inc,766,Waiau,W3,ST,RFO,50.0,47.2,47.2,1947
+19547,Hawaiian Electric Co Inc,766,Waiau,W4,ST,RFO,50.0,47.7,47.7,1950
+19547,Hawaiian Electric Co Inc,766,Waiau,W5,ST,RFO,54.4,51.9,51.9,1959
+19547,Hawaiian Electric Co Inc,766,Waiau,W6,ST,RFO,54.4,51.8,51.8,1961
+19547,Hawaiian Electric Co Inc,766,Waiau,W7,ST,RFO,81.6,77.8,77.8,1966
+19547,Hawaiian Electric Co Inc,766,Waiau,W8,ST,RFO,81.6,77.8,77.8,1968
+19547,Hawaiian Electric Co Inc,766,Waiau,W9,GT,DFO,51.3,51.2,51.2,1973
+18832,Tesoro Hawaii Corp,10093,Tesoro Hawaii,GEN1,GT,WOO,20.0,20.0,20.0,1982
+3453,Chevron Refinery-Hawaii,10194,Hawaii Cogen,GEN1,GT,OOG,3.0,3.0,3.0,1990
+3453,Chevron Refinery-Hawaii,10194,Hawaii Cogen,GEN2,GT,OOG,3.0,3.0,3.0,1990
+3453,Chevron Refinery-Hawaii,10194,Hawaii Cogen,GEN3,GT,WOO,3.0,3.0,3.0,1990
+3453,Chevron Refinery-Hawaii,10194,Hawaii Cogen,GEN4,GT,WOO,3.2,3.2,3.2,2011
+49846,Covanta Honolulu Resource Recovery,10334,H Power,GEN1,ST,MLG,63.7,60.0,60.0,1989
+177,AES Hawaii Inc,10673,AES Hawaii,GEN1,ST,COL,203.0,180.0,180.0,1992
+9989,Kalaeloa Partners LP,54646,Kalaeloa Cogen Plant,CT1,CT,RFO,119.2,82.0,82.0,1989
+9989,Kalaeloa Partners LP,54646,Kalaeloa Cogen Plant,CT2,CT,RFO,119.2,82.0,82.0,1991
+9989,Kalaeloa Partners LP,54646,Kalaeloa Cogen Plant,ST,CA,RFO,61.0,50.0,50.0,1991
+19547,Hawaiian Electric Co Inc,56329,Campbell Industrial Park,CIP1,GT,ORW,113.0,113.0,113.0,2009
+56338,Kahuku Wind Power LLC,57087,Kahuku Wind Power LLC,1,WT,WND,30.0,30.0,30.0,2011
+56868,Kawailoa Wind LLC,57529,Kawailoa Wind,1,WT,WND,69.0,69.0,69.0,2012
+58233,Kalaeloa Solar Two LLC,58259,Kalaeloa Solar Two,KAS2,PV,SUN,5.0,5.0,5.0,2012

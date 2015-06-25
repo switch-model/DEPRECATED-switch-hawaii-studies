@@ -1,0 +1,2 @@
+plant_code	plant_name
+764	Honolulu766	Waiau765	Kahe54646	Kalaeloa10673	AES10334	HPower56329	CIP57087	Kahuku57529	Kawailoa58259	Kalaeloa

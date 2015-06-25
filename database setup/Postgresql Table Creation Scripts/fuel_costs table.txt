@@ -1,0 +1,35 @@
+1. The fuel_costs table was created using the script :
+
+CREATE TABLE fuel_costs
+(
+  load_zone text,
+  
+year integer,
+  
+fuel_type text,
+  
+price_mmbtu double precision,
+  
+fuel_scen_id integer
+)
+
+2. The rows of the table were imported from the csv file named "fuel_prices_heco_irp.csv".
+This file was compiled using data from HECO IRP 
+(IRP-2013-App-E-Quantifying-the-Scenarios-062813-Filed.pdf) for most of the fuel types present except Coal. The fuel prices for coal have been taken from the AEO2014 report [Annual Energy Outlook 2014 With 
+Projections to 2040 - Released April 2014, Appendix A- Table A1 ]. The data from AEO2014 were for the years 2020, 2014,2020,2040
+
+###############################
+Added by MF 2015-06-19:
+
+average fuel costs for 2007-08 from Michael Roberts and Karl Jandoc
+TODO: setup switch to accept fuel costs by date and plant, and use the more detailed costs from "Matthias ECAF prices.xlsx"
+
+drop table if exists ecaf_costs;
+create temporary table ecaf_costs (year int, fuel varchar(20), fuel_cost double precision);
+\COPY ecaf_costs FROM 'fuel_cost_ecaf_annual.csv' WITH (FORMAT CSV, HEADER);
+
+insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
+    select 'Oahu' as load_zone, year, fuel as fuel_type, 
+            fuel_cost as price_mmbtu, 3 as fuel_scen_id
+        from ecaf_costs;
+        

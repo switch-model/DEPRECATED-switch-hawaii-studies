@@ -1,0 +1,3 @@
+param: RESERVE_PRODUCTS :  reserve_product_type reserve_product_spinning :=
+QLPU                       contingency           spinning
+;
