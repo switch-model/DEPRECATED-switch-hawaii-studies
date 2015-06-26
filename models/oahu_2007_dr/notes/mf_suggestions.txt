@@ -1,0 +1,67 @@
+being able to provide parameters indexed by time and project (e.g., min_commit_fraction) seemed like a good idea when I suggested it, but also seems like it's poking in very deeply to the working of the model in practice. but it sort of makes sense if we allow users to specify these rules at various levels (technology in general, project in general, project by time period).
+
+proj_commit_bounds_timeseries.tab should be renamed to proj_commit_bounds_timepoints.tab? (since it's indexed by timepoint)
+
+one problem with using PROJ_DISPATCH_POINTS as an indexing set instead of PROJECT, TIMEPOINT is that any parameters which must be indexed over this set (e.g., proj_min_commit) are hard to export. (on the other hand, it's not clear what should happen if you provide a value for an invalid time; it happens to be OK in this case (100% of nothing is nothing), but could cause problems for other parameters.)
+
+should we throw an error if someone marks a project as baseload and also sets proj_min_commit_fraction? Currently the proj_min_commit_fraction will override the rule that baseload plants run at full power.
+
+My general impression is that he is trying to distinguish between core and optional components (with some preference to include the extensions he usually needs as core), but this is muddling the distinction between functional layers (e.g., commit vs. dispatch). He is also sticking with a data ingest approach that splits tables by module (which means not really by entity or function) and makes whole tables optional but not individual columns. So then he's inclined to omit symmetrical elements (min/max capacity factor) which would introduce additional columns that he doesn't think are always needed. I think we would make the model much easier to approach by dividing the code sharply by function, and the data by entity (project, technology, heat rate curve). Then the code will adapt itself based on the data provided. And users can change model behavior by changing the data they provide. I don't think most users will want to get into the code (it's almost impossible as things stand now, the interdependencies are too complex and unclear), but we could still have simple/advanced versions of the modules while segregating by function. And we would make it a lot easier for users to work with the model if we kept indexing simpler and minimized the number of special-purpose expressions (e.g., we may not need DispatchUpperLimit at all, it can just be written as a simple constraint on dispatch. Or if we do use it, it could be indexed over all projects, all timepoints).
+
+We could move inputs_dir to the top-level definition of switch_data, so it doesn't have to be specified for every load_aug().
+
+We could replace all the load_aug statements with statements to add to a general table of data sources, e.g., define_data(source_table, select=[], param=[]) (multiple modules could specify columns in the same source table). This would be the same as now, but we could also add a tool to report all the tables and columns that the model can/must have, with the current set of modules.
+
+There is no need to distinguish between variable and non-variable projects. Just supply an upper limit for capacity factor if needed, otherwise default to 1.0. Then you don't need a complicated expression for DispatchUpperLimit (in project.unitcommit.commit of all places).
+
+DispatchLowerLimit could be set to upper limit for non-dispatchable projects. Is there currently any way to model non-curtailable projects? Why did he drop my min_capacity_factor element?
+
+I generally don't like the fact that commit is being defined as the place to stick all the advanced dispatch/commit elements. It ends up with a mix of commit and dispatch elements, which makes it hard to find any particular piece of code.
+
+users will have a hard time guessing where any given component should be. e.g., why should proj_full_load_heat rate be in project.build and part load heat rate in project.commit and proj_variable_costs be in project.dispatch? It may be easier for users if we have one table of per-project data, one table of per-technology data, etc. (i.e., normalize tables by index keys). These could have mandatory and optional columns which are described in a data dictionary. e.g., if you use discrete commitment, you must provide a proj_unit_size column. Then the functionality could also be grouped more closely in code, e.g., all project fuel elements together. This would make it easier to know where input data should go and also easier to guess where certain functionality resides in the code.
+
+The renamed columns (e.g., timepoint_label in the tab file in becomes tp_label in the model) are confusing for new users. It would probably be better to maintain consistent naming between inputs and outputs.
+
+The specialized sets (e.g., just the available dispatch times for various projects) are also confusing for new users and make it hard to write ad hoc output code. You have to dig into the model to figure out what exact object has what you need. It would be better to offer generic indexing sets (ProjDispatch[proj, timepoint], ProjCapacity[proj, period]), and wouldn't significantly expand the scope of the model (the new dummy decision variables [e.g., future build for existing projects] would be indexed by period not timepoint, so they'd be limited in number or expressions, and they would be constrained to zero so they would drop out of the solver). This would also make it much easier to add some functionality, like retire-and-replace (just constrain ProjCapacity below proj_max_capacity). It also gives rise to more natural forms of the start/retire constraints (e.g., ProjCapacity[proj, period<start_year or period>end_year] = 0).
+
+could we add a time_of_day[TIMEPOINTS] parameter (possibly optional)? 
+
+I changed TIMEPOINTS to an ordered set, so that other ordered sets can be derived from it. Note: From previous experiments, I know that pyomo can create one ordered set from another using initialize=other_set and filter= clause, but I don't know if the method currently used for TS_TPS is so robust (probably is).
+
+Allow constraining DumpPower to zero, for places where we are concerned about down reserves and non-curtailable renewables. In fact, it should probably usually be constrained to zero, since we now dispatch each RE project individually.
+
+don't require heat rates for every gen technologies, only require that something is eventually assigned for every project (e.g., if the user creates a custom technology for a project and supplies a project-specific heat rate that shoudl be enough)
+
+in gen_tech.py, set g_max_age domain to PositiveReals, not PositiveIntegers (in case people don't want to round)
+
+in load_zones.py change domain for lz_peak_demand_mw to NonNegativeReals (to allow zero value if not used)
+
+in project.unitcommit.commit, change default for mod.g_startup_fuel from 0.0 to 
+lambda m, tech: list(m.G_ENERGY_SOURCES[tech])[0] if len(m.G_ENERGY_SOURCES[tech]) == 1 else None
+
+remove references to project.unitcommit.fuel_use in project/unitcommit/__init__.py and project/unitcommit/commit.py, since it seems to have been eliminated.
+
+second half of bounds_BuildProj in project/build.py seems redundant (no need to limit annual additions to the total capacity limit).
+
+merge project_specific_costs with existing_projects? doesn't really make sense because project_specific_costs could have past and future years, and existing_projects only has past years.
+
+rename proj_fixed/variable_om to proj_fixed/variable_o_m to be consistent with g_fixed/variable_o_m
+
+rename cost_multipliers[z] to cost_multiplier[z]?
+
+rename g_* to just * in generator_info.tab. This would be consistent with other tables where a natural name is used in the topic-specific table, and then this gets prefixed with a topic identifier when it is read into switch.
+
+move ccs_distance_km from load_zone to some CCS module.
+move cost_multipliers from load_zone to financials module
+(or move variable_o_m from dispatch to a general project module to save a table)
+
+I don't like having to create a table of all projects, with no other data in it, and having to add all existing plant definitions to the technology table. Couldn't we get the data for new and existing projects (IDs and technology definitions) from their respective tables and then union them to make the full PROJECTS set? It might also be more natural to have the proj_connect_cost_per_mw for new projects but lump it in with an all-inclusive capital cost for existing projects (since that will be project-specific anyway). (well, maybe it's OK, since the default is to inherit from the generic table, but you can specify the info per project. Can you also specify it per buildyear?) It's actually pretty unnatural to have to specify a technology for existing plants -- each one will be different, and that will clutter the technology table. Maybe it's better to go the other way -- use generic technologies in the database, but output specific definitions for every single project (existing or future)?
+
+switch_data.load() could have an "optional=True" argument, to tell it to check whether the file exists and only load it if it does. A similar option would be helpful for individual columns (e.g., if g_min_build_capacity is optional, look for it in generator_info.tab, but don't worry if it's not there). Alternatively, "optional" could be assumed for all tables and columns. Then pyomo will use default values where available and otherwise throw an error (just like ampl). This error could be accompanied by a list of tables and columns that were loaded and ones that could not be found, which would help the user diagnose the problem.
+
+
+I would suggest changing "existing_projects.tab" to "existing_projects_buildyears.tab", since it contains build years rather than general project data.
+
+proj_variable_om seems to be missing.
+
+

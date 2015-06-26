@@ -7,8 +7,7 @@ data:
 ? get minimum loads for new and existing plants
 ? get heat rate curves for new plants
 ? get true-up and validation working
-
-mark must-run plants
+? get startup costs for new and existing plants, to smooth out dispatch
 
 experiments:
 iterate with michael roberts' demand function
@@ -17,6 +16,8 @@ show optimal plan, curtailment and cost with/without demand response
 
 - adapt switch to allow fuel costs by project and date
 - adapt switch to allow plants to use a power sales price (by hour) instead of a fuel cost.
+
+x mark must-run plants
 
 x tabulate heat rates for heco plants (fuel_use.tab created from Switch-Hawaii/data/Plant Heat Rates HECO/Appendix A Production Cost Database for Baseline system 2.xlsx)
 

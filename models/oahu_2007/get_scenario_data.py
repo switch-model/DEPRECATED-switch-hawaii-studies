@@ -17,6 +17,7 @@ args = dict(
     fuel_scen_id = 3,            # 1=low, 2=high, 3=reference
     time_sample = "2007",       # use a sample of dates in 2007-08 (will eventually be all of them)
     load_zones = ('Oahu',),       # subset of load zones to model
+    enable_must_run = 0,     # should the must_run flag be converted to set minimum commitment for existing plants?
     # TODO: integrate the connect length into switch financial calculations,
     # rather than assigning a cost per MW-km here.
     connect_cost_per_mw_km = 1000000,
@@ -381,8 +382,27 @@ write_table('proj_variable_costs.tab', """
 #########################
 # project.unitcommit.commit
 
-# TODO: heat rate curves for new projects
-# TODO: heat rate curves for existing plants
+# minimum commitment levels for existing projects
+
+# TODO: set proj_max_commit_fraction based on maintenance outage schedules
+# (needed for comparing switch marginal costs to FERC 715 data in 2007-08)
+
+# TODO: eventually add code to only provide these values for the timepoints before 
+# each project retires (providing them after retirement will cause an error).
+
+write_table('proj_commit_bounds_timeseries.tab', """
+    SELECT * FROM (
+        SELECT project_id as "PROJECT",
+            study_hour AS "TIMEPOINT",
+            case when %(enable_must_run)s = 1 and must_run = 1 then 1.0 else null end as proj_min_commit_fraction, 
+            null as proj_max_commit_fraction,
+            null as proj_min_load_fraction
+        FROM existing_plants, study_hour
+        WHERE load_zone in %(load_zones)s
+            AND time_sample = %(time_sample)s
+    ) AS the_data
+    WHERE proj_min_commit_fraction IS NOT NULL OR proj_max_commit_fraction IS NOT NULL OR proj_min_load_fraction IS NOT NULL;
+""", args)
 
 # TODO: get minimum loads for new and existing power plants and then activate the query below
 
@@ -406,14 +426,11 @@ write_table('proj_variable_costs.tab', """
 # """, args)
 
 
-# TODO: get minimum and maximum commitment levels for existing projects
-# (i.e., identify plants that are forced on and find maintenance outage schedules
-# for all plants) and then write queries to create proj_commit_bounds_timeseries.tab.
+#########################
+# project.unitcommit.fuel_use
 
-# proj_commit_bounds_timeseries.tab
-#     PROJECT, TIMEPOINT, proj_min_commit_fraction, proj_max_commit_fraction,
-#     proj_min_load_fraction
-
+# TODO: heat rate curves for new projects
+# TODO: heat rate curves for existing plants
 
 #########################
 # project.unitcommit.discrete
