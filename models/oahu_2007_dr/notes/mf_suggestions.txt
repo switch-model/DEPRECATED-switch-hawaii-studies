@@ -1,3 +1,5 @@
+It may be a good idea to split mod.LZ_Energy_Balance_components into Energy_Sources and Energy_Sinks (both positive). This would make it easier to automate graphing, and keep your head straight when adjusting demand.
+
 being able to provide parameters indexed by time and project (e.g., min_commit_fraction) seemed like a good idea when I suggested it, but also seems like it's poking in very deeply to the working of the model in practice. but it sort of makes sense if we allow users to specify these rules at various levels (technology in general, project in general, project by time period).
 
 proj_commit_bounds_timeseries.tab should be renamed to proj_commit_bounds_timepoints.tab? (since it's indexed by timepoint)

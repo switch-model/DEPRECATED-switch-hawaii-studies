@@ -45,12 +45,14 @@ def double_ces(p, Theta, baseLoad, basePrice):
     sigma   = Theta["sigma"]      #  elastic elasticity of substitution
     gamma   = Theta["gamma"]      #  inelastic elasticity of substitution
 
+    import pdb; pdb.set_trace()
+
     # convert inputs to numpy arrays, to allow easy element-wise math
     p = np.array(p)
     baseLoad = np.array(baseLoad)
     basePrice = np.array(basePrice)
 
-    pstar   = p/p[1]           #  calculate relative prices from price vector
+    pstar   = p/p[0]           #  calculate relative prices from price vector
 
     L = len(p)
     theta1 = dict( alpha = np.repeat(1.0/L, L), sigma=sigma, M=1 )
