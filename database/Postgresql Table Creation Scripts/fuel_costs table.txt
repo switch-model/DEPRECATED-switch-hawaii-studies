@@ -32,4 +32,14 @@ insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
     select 'Oahu' as load_zone, year, fuel as fuel_type, 
             fuel_cost as price_mmbtu, 3 as fuel_scen_id
         from ecaf_costs;
-        
+
+# somehow coal got inserted into the fuel cost database as fuel_scen_id=2 (high), even though 
+# it is in fueL-prices_heco_irp.csv as fuel_scen_id=3. We will just use the same costs for all 3 for now.
+# TODO: develop high and low cost cases for coal.
+insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
+    select load_zone, year, fuel_type, price_mmbtu, 1 as fuel_scen_id
+        from fuel_costs where load_zone='Oahu' and fuel_type='Coal' and fuel_scen_id=2;
+insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
+    select load_zone, year, fuel_type, price_mmbtu, 3 as fuel_scen_id
+        from fuel_costs where load_zone='Oahu' and fuel_type='Coal' and fuel_scen_id=2;
+    

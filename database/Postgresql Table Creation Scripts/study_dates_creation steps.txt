@@ -286,3 +286,102 @@ update study_date set
     ts_duration_of_tp = 24.0 / ts_num_tps;
 update study_date set
     ts_scale_to_period = hours_in_sample / ts_duration_of_tp;
+
+# make short four-day period for testing
+insert into study_periods (time_sample, period) 
+    select 'four_day' as time_sample, period 
+    from study_periods where time_sample='2007';
+
+insert into study_date (period, study_date, month_of_year, date, hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
+    select period, study_date, month_of_year, date, hours_in_sample, 'four_day' as time_sample, ts_num_tps, ts_duration_of_tp, 365.0/2 as ts_scale_to_period
+    from study_date where time_sample='2007' and month_of_year in (1, 7) and ts_scale_to_period > 1;
+
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+    select h.study_date, study_hour, hour_of_day, date_time, 'four_day' as time_sample
+        from study_hour h join study_date d using (study_date)
+        where d.time_sample='four_day' and h.time_sample='2007';
+        
+update study_hour h
+    set study_date = d.period*10 + extract(month from d.date) 
+    from study_date d
+    where h.time_sample='four_day' and d.time_sample='four_day' and d.date=date_trunc('day', h.date_time);
+update study_date set study_date = period*10 + extract(month from date) where time_sample='four_day';
+update study_hour set study_hour = study_date * 100 + hour_of_day where time_sample='four_day';
+
+# switch the columns to int datatypes so they don't get exported to switch with ".0" at the end
+alter table study_date 
+    alter column study_date type bigint;
+alter table study_hour 
+    alter column study_hour type bigint,
+    alter column study_date type bigint;
+
+# Short forward-looking study period
+insert into study_periods (time_sample, period) values ('2016test', 2016), ('2016test', 2020);
+insert into study_date (time_sample, period, study_date, date)
+    values
+        ('2016test', 2016, 1601, date '2007-01-15'),
+        ('2016test', 2016, 1607, date '2007-07-15'),
+        ('2016test', 2020, 2001, date '2008-01-15'),
+        ('2016test', 2020, 2007, date '2008-07-15');
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = 365.25*4/2
+    where time_sample='2016test';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+    select study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time, time_sample
+    from study_date d join system_load l 
+        on d.date=date_trunc('day', l.date_time) and l.load_zone='Oahu'
+    where time_sample='2016test'
+    order by 1, 2;
+    
+# Small but long-term study
+insert into study_periods (time_sample, period) values ('rps_test', 2015), ('rps_test', 2020), ('rps_test', 2025), ('rps_test', 2030);
+insert into study_date (time_sample, period, study_date, date)
+    values
+        ('rps_test', 2015, 1501, date '2007-01-15'),
+        ('rps_test', 2015, 1507, date '2007-07-15'),
+        ('rps_test', 2020, 2001, date '2008-01-15'),
+        ('rps_test', 2020, 2007, date '2008-07-15'),
+        ('rps_test', 2025, 2501, date '2007-02-15'),
+        ('rps_test', 2025, 2507, date '2007-08-15'),
+        ('rps_test', 2030, 3001, date '2008-02-15'),
+        ('rps_test', 2030, 3007, date '2008-08-15');
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = 365.25*5/2
+    where time_sample='rps_test';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+    select study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time, time_sample
+    from study_date d join system_load l 
+        on d.date=date_trunc('day', l.date_time) and l.load_zone='Oahu'
+    where time_sample='rps_test'
+    order by 1, 2;
+
+# Small but long-term study
+insert into study_periods (time_sample, period) values ('rps_test_50', 2020), ('rps_test_50', 2030), ('rps_test_50', 2050), ('rps_test_50', 2050);
+insert into study_date (time_sample, period, study_date, date)
+    values
+        ('rps_test', 2020, 1501, date '2007-01-15'),
+        ('rps_test', 2020, 1507, date '2007-07-15'),
+        ('rps_test', 2030, 2001, date '2008-01-15'),
+        ('rps_test', 2030, 2007, date '2008-07-15'),
+        ('rps_test', 2040, 2501, date '2007-02-15'),
+        ('rps_test', 2040, 2507, date '2007-08-15'),
+        ('rps_test', 2050, 3001, date '2008-02-15'),
+        ('rps_test', 2050, 3007, date '2008-08-15');
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = 365.25*5/2
+    where time_sample='rps_test';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+    select study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time, time_sample
+    from study_date d join system_load l 
+        on d.date=date_trunc('day', l.date_time) and l.load_zone='Oahu'
+    where time_sample='rps_test'
+    order by 1, 2;

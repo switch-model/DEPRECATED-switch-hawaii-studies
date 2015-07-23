@@ -1,0 +1,119 @@
+import numpy as np
+
+p3 = np.array([223.46755,
+ 223.46755,
+ 223.46755,
+ 223.46755,
+ 6.1425,
+ 33.386127,
+ 33.386127,
+ 0.0001,
+ 62.15132511,
+ 0.0001,
+ 14.71136702,
+ 33.386127,
+ 0.0001,
+ 0.0001,
+ 0.0001,
+ 0.0001,
+ 0.0001,
+ 0.0001,
+ 128.7435002,
+ 128.7435002,
+ 128.7435002,
+ 33.386127,
+ 33.386127,
+ 6.1425])
+
+p100 = np.array([33.386127,
+ 33.386127,
+ 33.386127,
+ 33.386127,
+ 223.46755,
+ 223.46755,
+ 223.46755,
+ 223.46755,
+ 33.386127,
+ 128.7435002,
+ 33.386127,
+ 33.386127,
+ 33.53998572,
+ 33.386127,
+ 49.26089661,
+ 35.07013545,
+ 33.386127,
+ 193.7445497,
+ 227.38558,
+ 227.38558,
+ 227.38558,
+ 223.46755,
+ 223.46755,
+ 223.46755])
+
+bl = np.array([443.5485135,
+ 412.5287564,
+ 392.9492748,
+ 409.9627354,
+ 495.3371584,
+ 656.3028709,
+ 819.7278261,
+ 839.4007896,
+ 886.017259,
+ 909.3656272,
+ 918.7610474,
+ 925.8043292,
+ 930.8295114,
+ 925.1762222,
+ 923.8129853,
+ 907.267342,
+ 908.4300741,
+ 966.2061285,
+ 1047.851717,
+ 974.893256,
+ 889.2248464,
+ 784.7655149,
+ 631.8586598,
+ 508.3143382])
+
+bp = 110.0
+
+elasticity = 0.015
+shiftable_share = 0.3
+
+elastic_base_load = (1.0 - shiftable_share) * bl
+
+el3 =  elastic_base_load * (p3/bp) ** (-elasticity)
+el100 =  elastic_base_load * (p100/bp) ** (-elasticity)
+
+csd3 = ((1 - (p3/bp)**(1-elasticity)) * bp * elastic_base_load / (1-elasticity))
+csd100 = (1 - (p100/bp)**(1-elasticity)) * bp * elastic_base_load / (1-elasticity)
+
+base_elastic_load_paid = bp * elastic_base_load
+elp3 = p3 * el3
+elp100 = p100 * el100
+elpd3 = base_elastic_load_paid - elp3
+elpd100 = base_elastic_load_paid - elp100
+
+wtp3=csd3+elpd3
+wtp100=csd100+elpd100
+
+np.sum(wtp3)
+np.sum(wtp100)
+
+b3=bid(p3, bl, bp)
+b100=bid(p100, bl, bp)
+
+(np.sum(wtp3)-np.sum(el3*p100)) - (np.sum(wtp100)-np.sum(el100*p100))
+
+(b3[1]-np.sum(b3[0]*p100)) - (b100[1]-np.sum(b100[0]*p100))
+
+# without shiftable load, the cost of purchase becomes more similar between the two scenarios,
+# but the difference in WTP remains the same. If WTP for b3 is so high, why isn't it selected with p100?
+(b3[1], np.sum(b3[0]*p100)), (b100[1], np.sum(b100[0]*p100))
+(np.sum(wtp3), np.sum(el3*p100)), (np.sum(wtp100), np.sum(el100*p100))
+
+# which hours look better using bid 3 than bid 100, at p100 prices?
+zip(wtp3-el3*p100, wtp100-el100*p100, (wtp3-el3*p100)-(wtp100-el100*p100))
+
+# most of them, e.g., hour 5 (index 4)
+

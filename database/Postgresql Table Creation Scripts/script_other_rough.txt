@@ -395,6 +395,8 @@ WHERE site=175 AND technology='CentralPV'
 (To Do : Have to update the connect_costs table with connect_length_km with the recent values as the equivalent 
 sites for exixting plants have been removed from the master tables)
 
+TODO: add connection cost for CentralTrackingPV
+
 *************************************************************************************
 12.53% Energy Losses for Wind Turbines have been included in the capacity factor. 
 ------------------------------------------
@@ -456,3 +458,31 @@ UPDATE system_load_scale
 Add generator unit sizes for new technologies (omitted from original data import).
 alter table generator_costs add column unit_size double precision;
 
+=====================
+postgresql doesn't have a "drop [temporary] table if exists" command, so this function does
+something similar. This could be useful during data export (and maybe at other times). 
+
+CREATE or REPLACE FUNCTION public.drop_temporary_table(varchar)
+RETURNS pg_catalog.bool AS
+$BODY$
+DECLARE
+BEGIN
+	 /* check that a temporary table with this name exists and is visible to the current user */
+	PERFORM n.nspname, c.relname
+	FROM pg_catalog.pg_class c 
+		LEFT JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+		WHERE n.nspname like 'pg_temp_%' AND pg_catalog.pg_table_is_visible(c.oid)
+			AND Upper(relname) = Upper($1);
+	IF FOUND THEN
+		EXECUTE 'DROP TABLE ' || $1 || ';';
+		RETURN TRUE;
+	ELSE
+		RETURN FALSE;
+	END IF;
+END;
+$BODY$
+LANGUAGE 'plpgsql' VOLATILE;
+
+later, this can be run as 
+DO $$ BEGIN PERFORM drop_temporary_table('t'); END $$;
+===========================

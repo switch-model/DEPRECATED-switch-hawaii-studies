@@ -1,5 +1,11 @@
+*.ipynb
 *.pyc
 **parse_table_datacmds.py
 .idea
 .DS_Store
 gurobi.log
+inputs/
+outputs/
+inputs_*/
+outputs_*/
+runfile*.txt

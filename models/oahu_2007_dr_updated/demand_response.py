@@ -28,7 +28,7 @@ def define_components(m):
         sum(m.DRUnservedLoad[lz, tp] * m.dr_unserved_load_penalty_per_mwh for lz in m.LOAD_ZONES)
     )
     # add the unserved load to the model's energy balance
-    m.LZ_Energy_Balance_components.append('DRUnservedLoad')
+    m.LZ_Energy_Components_Produce.append('DRUnservedLoad')
     # add the unserved load penalty to the model's objective function
     m.cost_components_tp.append('DR_Unserved_Load_Penalty')
 
@@ -71,7 +71,7 @@ def define_components(m):
     # Optimal level of demand, calculated from available bids (negative, indicating consumption)
     m.FlexibleDemand = Expression(m.LOAD_ZONES, m.TIMEPOINTS, 
         rule=lambda m, lz, tp:
-            - sum(m.DRBidWeight[b, lz, m.tp_ts[tp]] * m.dr_bid[b, lz, tp] for b in m.DR_BID_LIST)
+            sum(m.DRBidWeight[b, lz, m.tp_ts[tp]] * m.dr_bid[b, lz, tp] for b in m.DR_BID_LIST)
     )
 
     # # FlexibleDemand reported as an adjustment (negative equals more demand)
@@ -197,11 +197,15 @@ def update_demand(m, tag):
     #     for ts in m.TS_TPS[m.TIMESERIES.first()]]
     
     if first_run:
-        # add FlexibleDemand to the energy balance constraint and remove lz_demand_mw_as_consumption
+        # replace lz_demand_mw with FlexibleDemand in the energy balance constraint
         # note: it is easiest to do this after retrieving the bids because this
         # destroys the dual values which are needed for calculating the bids
-        m.LZ_Energy_Balance_components.remove('lz_demand_mw_as_consumption')
-        m.LZ_Energy_Balance_components.append('FlexibleDemand')
+        # note: the first two lines are simpler than the method I use, but my approach
+        # preserves the ordering of the list, which is nice for reporting.
+        # m.LZ_Energy_Components_Consume.remove('lz_demand_mw')
+        # m.LZ_Energy_Components_Consume.append('FlexibleDemand')
+        ecc = m.LZ_Energy_Components_Consume
+        ecc[ecc.index('lz_demand_mw')] = 'FlexibleDemand'
         m.Energy_Balance.reconstruct()
 
 def sum_product(vector1, vector2):

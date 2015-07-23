@@ -7,6 +7,9 @@ from write_pyomo_table import write_table
 # NOTE: ANSI SQL specifies single quotes for literal strings, and postgres conforms
 # to this, so all the queries below should use single quotes around strings.
 
+# NOTE: write_table() will automatically convert null values to '.', 
+# so pyomo will recognize them as missing data
+
 ###########################
 # Scenario Definition
 
@@ -73,41 +76,34 @@ with open('financials.dat', 'w') as f:
 #########################
 # load_zones
 
+# note: we don't provide the following fields in this version:
+# lz_cost_multipliers, lz_ccs_distance_km, lz_dbid, 
+# existing_local_td, local_td_annual_cost_per_mw
 write_table('load_zones.tab', """
-    SELECT load_zone as "LOAD_ZONE",
-        '.' as cost_multipliers,
-        '.' as ccs_distance_km,
-        load_zone as dbid
+    SELECT load_zone as "LOAD_ZONE"
     FROM load_zone 
     WHERE load_zone in %(load_zones)s
 """, args)
 
-# TODO: drop this table and calculate peak demand internally
-write_table('lz_peak_loads.tab', """
-    SELECT load_zone as "LOAD_ZONE",
-        period as "PERIOD",
-        0.0 as peak_demand_mw
-    FROM load_zone, study_periods
-    WHERE load_zone in %(load_zones)s
-    AND time_sample = %(time_sample)s
-""", args)
-
+# NOTE: we don't provide lz_peak_loads.tab (sometimes used by local_td.py) in this version.
 
 # get system loads, scaled from the historical years to the model years
 # note: 'offset' is a keyword in postgresql, so we use double-quotes to specify the column name
 write_table('loads.tab', """
-    SELECT l.load_zone AS "LOAD_ZONE", study_hour AS "TIMEPOINT",
-            system_load * scale + "offset" AS demand_mw
-        FROM study_date d 
-            JOIN study_hour h USING (time_sample, study_date)
-            JOIN system_load l USING (date_time)
-            JOIN system_load_scale s ON (
-                s.load_zone = l.load_zone 
-                AND s.year_hist = extract(year from l.date_time)
-                AND s.year_fore = d.period)
-        WHERE l.load_zone in %(load_zones)s
-            AND d.time_sample = %(time_sample)s
-            AND load_scen_id = %(load_scen_id)s;
+    SELECT 
+        l.load_zone AS "LOAD_ZONE", 
+        study_hour AS "TIMEPOINT",
+        system_load * scale + "offset" AS lz_demand_mw
+    FROM study_date d 
+        JOIN study_hour h USING (time_sample, study_date)
+        JOIN system_load l USING (date_time)
+        JOIN system_load_scale s ON (
+            s.load_zone = l.load_zone 
+            AND s.year_hist = extract(year from l.date_time)
+            AND s.year_fore = d.period)
+    WHERE l.load_zone in %(load_zones)s
+        AND d.time_sample = %(time_sample)s
+        AND load_scen_id = %(load_scen_id)s;
 """, args)
 
 
@@ -155,67 +151,75 @@ write_table('fuel_cost.tab', """
 # TODO: rename/drop the DistPV_peak and DistPV_flat technologies in the generator_costs table
 # note: this zeroes out variable_o_m for renewable projects
 # TODO: find out where variable_o_m came from for renewable projects and put it in the right place
-# note: this converts variable o&m from $/kWh to $/MWh
-# NOTE: for now we turn off the baseload flag for all gens, to allow for a 100% RPS
 # TODO: fix baseload flag in the database
+# TODO: account for multiple fuel sources for a single plant in the upstream database
+# and propagate that to this table.
+# TODO: make sure the heat rates are null for non-fuel projects in the upstream database, 
+# and remove the correction code from here
+# TODO: create heat_rate and fuel columns in the existing_plants_gen_tech table and simplify the query below.
+# TODO: add unit sizes for new projects to the generator_costs table (new projects) from
+# Switch-Hawaii/data/HECO\ IRP\ Report/IRP-2013-App-K-Supply-Side-Resource-Assessment-062813-Filed.pdf
+# and then incorporate those into unit_sizes.tab below.
+# NOTE: this converts variable o&m from $/kWh to $/MWh
+# NOTE: for now we turn off the baseload flag for all gens, to allow for a 100% RPS
+# NOTE: we don't provide the following in this version:
+# g_min_build_capacity
+# g_ccs_capture_efficiency, g_ccs_energy_load,
+# g_storage_efficiency, g_store_to_release_ratio
+            
 write_table('generator_info.tab', """
     SELECT  replace(technology,'DistPV_peak', 'DistPV') as generation_technology, 
-            replace(technology,'DistPV_peak', 'DistPV')  as g_dbid,
+            replace(technology,'DistPV_peak', 'DistPV') as g_dbid,
             max_age_years as g_max_age, 
-            '.' as g_min_build_capacity,
             scheduled_outage_rate as g_scheduled_outage_rate, 
             forced_outage_rate as g_forced_outage_rate,
             intermittent as g_is_variable, 
             0 as g_is_baseload,
             0 as g_is_flexible_baseload, 
-            1 as g_is_dispatchable, 
             0 as g_is_cogen,
             0 as g_competes_for_space, 
-            CASE WHEN fuel IN ('SUN', 'WND') THEN 0 ELSE variable_o_m * 1000.0 END AS g_variable_o_m
+            CASE WHEN fuel IN ('SUN', 'WND') THEN 0 ELSE variable_o_m * 1000.0 END AS g_variable_o_m,
+            fuel AS g_energy_source,
+            CASE WHEN fuel IN (SELECT fuel_type FROM fuel_costs) THEN 0.001*heat_rate ELSE null END
+                AS g_full_load_heat_rate,
+            null AS g_unit_size
         FROM generator_costs
         WHERE technology NOT IN ('DistPV_flat')
             AND min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
     UNION SELECT
-            technology as generation_technology, 
-            technology as g_dbid, 
-            max_age + 100 as g_max_age, 
-            '.' as g_min_build_capacity,
-            scheduled_outage_rate as g_scheduled_outage_rate, 
-            forced_outage_rate as g_forced_outage_rate,
-            variable as g_is_variable, 
+            g.technology as generation_technology, 
+            g.technology as g_dbid, 
+            g.max_age + 100 as g_max_age, 
+            g.scheduled_outage_rate as g_scheduled_outage_rate, 
+            g.forced_outage_rate as g_forced_outage_rate,
+            g.variable as g_is_variable, 
             0 as g_is_baseload,
             0 as g_is_flexible_baseload, 
-            dispatchable as g_is_dispatchable, 
-            cogen as g_is_cogen,
-            competes_for_space as g_competes_for_space, 
-            CASE WHEN EXISTS (SELECT * FROM existing_plants p 
-                    WHERE p.technology=g.technology AND aer_fuel_code IN ('SUN', 'WND'))
-                THEN 0 ELSE variable_o_m * 1000.0 END AS g_variable_o_m
-        FROM existing_plants_gen_tech g
-        WHERE technology IN 
-            (SELECT technology FROM existing_plants WHERE load_zone in %(load_zones)s
-                AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s))
+            g.cogen as g_is_cogen,
+            g.competes_for_space as g_competes_for_space, 
+            CASE WHEN MIN(p.aer_fuel_code) IN ('SUN', 'WND') THEN 0.0 ELSE AVG(g.variable_o_m) * 1000.0 END 
+                AS g_variable_o_m,
+            MIN(p.aer_fuel_code) AS g_energy_source,
+            CASE WHEN MIN(p.aer_fuel_code) IN (SELECT fuel_type FROM fuel_costs) 
+                THEN 0.001*ROUND(SUM(p.heat_rate*p.avg_mw)/SUM(p.avg_mw)) 
+                ELSE null 
+                END 
+                AS g_full_load_heat_rate,
+            AVG(peak_mw) AS g_unit_size  -- minimum block size for unit commitment
+        FROM existing_plants_gen_tech g JOIN existing_plants p USING (technology)
+        WHERE p.load_zone in %(load_zones)s
+            AND p.insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
+        GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10
     ORDER BY 1;
 """, args)
 
-# not providing ccs_info
+# TODO: write code in project.unitcommit.commit to load part-load heat rates
+# TODO: get part-load heat rates for new plant technologies and report them in 
+# project.unit.commit instead of full-load heat rates here.
+# TODO: report part-load heat rates for existing plants in project.unitcommit.commit
+# (maybe on a project-specific basis instead of generalized for each technology)
+# NOTE: we divide heat rate by 1000 to convert from Btu/kWh to MBtu/MWh
 
-# TODO: account for multiple fuel sources for a single plant in the upstream database
-# and propagate that to this table.
-write_table('generator_energy_sources.tab', """
-    SELECT DISTINCT
-        technology as generation_technology, 
-        fuel as energy_source
-    FROM generator_costs
-    WHERE min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    UNION DISTINCT SELECT DISTINCT
-            technology as generation_technology, 
-            aer_fuel_code as energy_source
-        FROM existing_plants
-        WHERE load_zone in %(load_zones)s
-            AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    ORDER BY 1;
-""", args)
 
 # note: this table can only hold costs for technologies with future build years,
 # so costs for existing technologies are specified in project_specific_costs.tab
@@ -243,100 +247,102 @@ write_table('gen_new_build_costs.tab', """
     # GROUP BY 1, 2
 
 
-# not providing storage_info
-
-# list sizes of units for projects that need unit-sized construction and dispatch
-
-# TODO: add unit sizes for new projects to the generator_costs table (new projects) from
-# Switch-Hawaii/data/HECO\ IRP\ Report/IRP-2013-App-K-Supply-Side-Resource-Assessment-062813-Filed.pdf
-# and then incorporate those into unit_sizes.tab below.
-
-write_table('unit_sizes.tab', """
-    SELECT DISTINCT
-        technology as generation_technology, 
-        peak_mw as g_unit_size
-    FROM existing_plants
-    WHERE load_zone in %(load_zones)s
-        AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    ORDER by 1;
-""", args)
-
-# TODO: write code in project.unitcommit.commit to load part-load heat rates
-# TODO: get part-load heat rates for new plant technologies and report them in 
-# project.unit.commit instead of full-load heat rates here.
-# TODO: report part-load heat rates for existing plants in project.unitcommit.commit
-# (maybe on a project-specific basis instead of generalized for each technology)
-# NOTE: we divide heat rate by 1000 to convert from Btu/kWh to MBtu/MWh
-write_table('gen_heat_rates.tab', """
-    SELECT DISTINCT
-        technology AS generation_technology, 
-        0.001*heat_rate AS full_load_heat_rate
-    FROM generator_costs
-    WHERE fuel IN (SELECT fuel_type FROM fuel_costs)
-        AND min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    UNION SELECT
-        technology AS generation_technology, 
-        0.001*round(sum(heat_rate*avg_mw)/sum(avg_mw)) AS full_load_heat_rate
-    FROM existing_plants
-    WHERE load_zone in %(load_zones)s
-        AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-        AND aer_fuel_code IN (SELECT fuel_type FROM fuel_costs)
-    GROUP BY 1
-    ORDER by 1;
-""", args)
 
 #########################
 # project.build
 
 # TODO: find connection costs and add them to the switch database (currently all zeroes)
+# TODO: find out why exissting wind and solar projects have non-zero variable O&M in the switch 
+# database, and zero them out there instead of here.
 # NOTE: if a generator technology in the generator_costs table doesn't have a match in the connect_cost
-# table, the proj_connect_cost_per_mw will be null, and will be given whatever default value
-# SWITCH uses (probably zero).
-# If individual sites are identified in connect_cost or max_capacity, we use those;
-# we also add in any technologies that are not marked as resource_limited.
-# TODO: make sure all projects in max_capacity are also in connect_cost, and drop
-# the second part of the query below.
-write_table('all_projects.tab', """
-    SELECT concat_ws('_', load_zone, technology, site, orientation) as "PROJECT",
+# table, we use the generic_cost_per_kw from the generator_costs table. If that is also null,
+# then the connection cost will be given whatever default value is specified in the SWITCH code
+# (probably zero).
+# If individual projects are identified in connect_cost or max_capacity, we use those;
+# then we also add generic projects in each load_zone for any technologies that are not
+# marked as resource_limited in generator_costs.
+# NOTE: if a technology ever appears in either max_capacity or connect_cost, then
+# every possible project of that type should be recorded in that table. 
+# Technologies that don't appear in these tables are deemed generic projects,
+# which can be added once in each load zone.
+# NOTE: the queries below will not detect if a technology is attached to different 
+# sets of project definitions in the max_capacity and connect_cost tables;
+# we leave it to the user to ensure this doesn't happen.
+# NOTE: we don't provide the following, because they are specified in generator_info.tab instead
+# proj_full_load_heat_rate, proj_forced_outage_rate, proj_scheduled_outage_rate
+# (the project-specific data would only be for otherwise-similar projects that have degraded and 
+# now have different heat rates)
+# NOTE: variable costs for existing plants could alternatively be added to the generator_info.tab 
+# table (aggregated by technology instead of project). That is where we put the variable costs for new projects.
+# NOTE: we convert costs from $/kWh to $/MWh
+
+write_table('project_info.tab', """
+        -- make a list of all projects with detailed definitions (and gather the available data)
+        DO $$ BEGIN PERFORM drop_temporary_table('t_specific_projects'); END $$;
+        CREATE TEMPORARY TABLE t_specific_projects AS
+            SELECT 
+                concat_ws('_', 
+                    COALESCE(m.load_zone, c.load_zone),
+                    COALESCE(m.technology, c.technology),
+                    COALESCE(m.site, c.site),
+                    COALESCE(m.orientation, c.orientation)
+                ) AS "PROJECT",
+                COALESCE(m.load_zone, c.load_zone) as proj_load_zone,
+                COALESCE(m.technology, c.technology) AS proj_gen_tech,
+                %(connect_cost_per_mw_km)s*connect_length_km + 1000.0*connect_cost_per_kw as proj_connect_cost_per_mw,
+                max_capacity as proj_capacity_limit_mw
+            FROM connect_cost c FULL JOIN max_capacity m USING (load_zone, technology, site, orientation);
+
+        -- make a list of generic projects (for which no detailed definitions are available)
+        DO $$ BEGIN PERFORM drop_temporary_table('t_generic_projects'); END $$;
+        CREATE TEMPORARY TABLE t_generic_projects AS
+            SELECT 
+                concat_ws('_', load_zone, technology) AS "PROJECT",
+                load_zone as proj_load_zone,
+                technology AS proj_gen_tech,
+                cast(null as float) AS proj_connect_cost_per_mw,
+                cast(null as float) AS proj_capacity_limit_mw
+            FROM generator_costs g
+                CROSS JOIN (SELECT DISTINCT load_zone FROM system_load) z
+            WHERE g.technology NOT IN (SELECT proj_gen_tech FROM t_specific_projects);
+        
+        -- merge the specific and generic projects
+        DO $$ BEGIN PERFORM drop_temporary_table('t_all_projects'); END $$;
+        CREATE TEMPORARY TABLE t_all_projects AS
+        SELECT * FROM t_specific_projects UNION SELECT * from t_generic_projects;
+        
+        -- collect extra data from the generator_costs table and filter out disallowed projects
+        SELECT
+            a."PROJECT", 
             null as proj_dbid,
-            technology as proj_gen_tech, 
-            load_zone as proj_load_zone, 
-            %(connect_cost_per_mw_km)s*connect_length_km + 1000*connect_cost_per_kw as proj_connect_cost_per_mw
-        FROM connect_cost JOIN generator_costs USING (technology)
-        WHERE load_zone IN %(load_zones)s
-            AND min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    UNION DISTINCT SELECT 
-            concat_ws('_', load_zone, technology, site, orientation) as "PROJECT",
-            null as proj_dbid,
-            technology as proj_gen_tech, 
-            load_zone as proj_load_zone, 
-            0.0 as proj_connect_cost_per_mw
-        FROM max_capacity
-        WHERE load_zone IN %(load_zones)s 
-            AND concat_ws('_', load_zone, technology, site, orientation) NOT IN 
-                (SELECT concat_ws('_', load_zone, technology, site, orientation) FROM connect_cost)
-    UNION DISTINCT SELECT
-            concat_ws('_', load_zone, technology) AS "PROJECT",
-            null as proj_dbid,
-            technology as proj_gen_tech, 
-            load_zone as proj_load_zone, 
-            0.0 as proj_connect_cost_per_mw
-        FROM generator_costs g, (SELECT DISTINCT load_zone FROM system_load) z
-        WHERE resource_limited = 0 AND load_zone IN %(load_zones)s 
-    UNION DISTINCT SELECT DISTINCT 
+            a.proj_gen_tech, 
+            a.proj_load_zone, 
+            COALESCE(a.proj_connect_cost_per_mw, 1000.0*g.connect_cost_per_kw_generic, 0.0) AS proj_connect_cost_per_mw,
+            a.proj_capacity_limit_mw,
+            cast(null as float) AS proj_variable_om    -- this is supplied in generator_info.tab for new projects
+        FROM t_all_projects a JOIN generator_costs g on g.technology=a.proj_gen_tech
+        WHERE a.proj_load_zone IN %(load_zones)s
+            AND g.min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
+        UNION
+        -- collect data on existing projects
+        SELECT DISTINCT 
             project_id AS "PROJECT",
-            null as dbid,
-            technology as proj_gen_tech, 
-            load_zone as proj_load_zone, 
-            0.0 as proj_connect_cost_per_mw
+            null AS dbid,
+            technology AS proj_gen_tech, 
+            load_zone AS proj_load_zone, 
+            0.0 AS proj_connect_cost_per_mw,
+            cast(null as float) AS proj_capacity_limit_mw,
+            sum(CASE WHEN aer_fuel_code IN ('SUN', 'WND') THEN 0.0 ELSE variable_o_m END * 1000.0 * avg_mw)
+               / sum(avg_mw) AS proj_variable_om
         FROM existing_plants
         WHERE load_zone IN %(load_zones)s
             AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    ORDER BY 4, 3, 1;
+        GROUP BY 1, 2, 3, 4, 5, 6
+        ORDER BY 4, 3, 1;
 """, args)
 
-# note, this is really more like 'existing_project_buildyears.tab'.
-write_table('existing_projects.tab', """
+
+write_table('proj_existing_builds.tab', """
     SELECT project_id AS "PROJECT", 
             insvyear AS build_year, 
             sum(peak_mw) as proj_existing_cap
@@ -346,22 +352,10 @@ write_table('existing_projects.tab', """
     GROUP BY 1, 2;
 """, args)
 
-write_table('cap_limited_projects.tab', """
-    SELECT 
-        concat_ws('_', load_zone, technology, site, orientation) as "PROJECT",
-        max_capacity as proj_capacity_limit_mw
-    FROM max_capacity JOIN generator_costs USING (technology)
-    WHERE load_zone in %(load_zones)s
-        AND min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-""", args)
-
-# note: we don't supply proj_heat_rate.tab because that's focused
-# on otherwise similar projects that now have different heat rates (degraded)
-
-# note: we have to put cost data for existing projects in project_specific_costs.tab
+# note: we have to put cost data for existing projects in proj_build_costs.tab
 # because gen_new_build_costs only covers future investment periods.
 # NOTE: these costs must be expressed per MW, not per kW
-write_table('project_specific_costs.tab', """
+write_table('proj_build_costs.tab', """
     SELECT project_id AS "PROJECT", 
             insvyear AS build_year, 
             sum(overnight_cost * 1000.0 * peak_mw) / sum(peak_mw) as proj_overnight_cost,
@@ -380,12 +374,16 @@ write_table('variable_capacity_factors.tab', """
     SELECT 
         concat_ws('_', load_zone, technology, site, orientation) as "PROJECT",
         study_hour as timepoint,
-        cap_factor as prj_capacity_factor
+        cap_factor as proj_max_capacity_factor
     FROM generator_costs g JOIN cap_factor c USING (technology)
         JOIN study_hour h using (date_time)
     WHERE load_zone in %(load_zones)s and time_sample = %(time_sample)s
         AND min_vintage_year <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    UNION SELECT c.project_id as "PROJECT", study_hour as timepoint, cap_factor as prj_capacity_factor
+    UNION 
+    SELECT 
+        c.project_id as "PROJECT", 
+        study_hour as timepoint, 
+        cap_factor as proj_max_capacity_factor
     FROM existing_plants p JOIN existing_plants_cap_factor c USING (project_id)
         JOIN study_hour h USING (date_time)
     WHERE h.date_time = c.date_time 
@@ -393,21 +391,6 @@ write_table('variable_capacity_factors.tab', """
         AND h.time_sample = %(time_sample)s
         AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
     ORDER BY 1, 2
-""", args)
-
-# note: these could alternatively be added to the generator_info.tab table
-# (aggregated by technology instead of project)
-# That is where we put the variable costs for new projects.
-# NOTE: we convert from $/kWh to $/MWh
-# TODO: find out why wind and solar projects have variable O&M in the database
-write_table('proj_variable_costs.tab', """
-    SELECT project_id AS "PROJECT", 
-         sum(CASE WHEN aer_fuel_code IN ('SUN', 'WND') THEN 0.0 ELSE variable_o_m END * 1000.0 * avg_mw)
-            / sum(avg_mw) AS proj_variable_om
-    FROM existing_plants
-    WHERE load_zone in %(load_zones)s
-        AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
-    GROUP BY 1;
 """, args)
 
 
@@ -448,14 +431,14 @@ write_table('proj_commit_bounds_timeseries.tab', """
 #     SELECT 
 #         technology AS generation_technology, 
 #         min_load / unit_size AS g_min_load_fraction, 
-#         '.' AS g_startup_fuel,
-#         '.' AS g_startup_om
+#         null AS g_startup_fuel,
+#         null AS g_startup_om
 #     FROM generator_costs
 #     UNION SELECT DISTINCT
 #         technology AS generation_technology, 
 #         sum(min_load) / sum(peak_mw) AS g_min_load_fraction, 
-#         '.' AS g_startup_fuel,
-#         '.' AS g_startup_om
+#         null AS g_startup_fuel,
+#         null AS g_startup_om
 #     FROM existing_plants
 #     WHERE load_zone in %(load_zones)s
 #        AND insvyear <= (SELECT MAX(period) FROM study_periods WHERE time_sample = %(time_sample)s)
@@ -478,11 +461,6 @@ write_table('proj_commit_bounds_timeseries.tab', """
 
 # TODO: write reserves code
 # TODO: create data files showing reserve rules
-
-
-#########################
-# project.local_td
-# --- Not used ---
 
 
 #########################

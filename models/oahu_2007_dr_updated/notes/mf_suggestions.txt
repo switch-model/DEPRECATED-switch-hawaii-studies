@@ -1,7 +1,5 @@
 Maybe give a warning if the user specifies a project that doesn't have any entries in fuel_costs.tab? Right now, fuel_costs.tab defines a list of available fuels and dates, and if a fuel isn't in there, the project quietly fails to run.
 
-It may be a good idea to split mod.LZ_Energy_Balance_components into Energy_Sources and Energy_Sinks (both positive). This would make it easier to automate graphing, and keep your head straight when adjusting demand.
-
 being able to provide parameters indexed by time and project (e.g., min_commit_fraction) seemed like a good idea when I suggested it, but also seems like it's poking in very deeply to the working of the model in practice. but it sort of makes sense if we allow users to specify these rules at various levels (technology in general, project in general, project by time period).
 
 proj_commit_bounds_timeseries.tab should be renamed to proj_commit_bounds_timepoints.tab? (since it's indexed by timepoint)
@@ -32,7 +30,7 @@ could we add a time_of_day[TIMEPOINTS] parameter (possibly optional)?
 
 I changed TIMEPOINTS to an ordered set, so that other ordered sets can be derived from it. Note: From previous experiments, I know that pyomo can create one ordered set from another using initialize=other_set and filter= clause, but I don't know if the method currently used for TS_TPS is so robust (probably is).
 
-Allow constraining DumpPower to zero, for places where we are concerned about down reserves and non-curtailable renewables. In fact, it should probably usually be constrained to zero, since we now dispatch each RE project individually.
+Allow constraining DumpPower to zero, for places where we are concerned about down reserves and non-curtailable renewables. In fact, it should probably usually be constrained to zero (or omitted), since we now dispatch each RE project individually.
 
 don't require heat rates for every gen technologies, only require that something is eventually assigned for every project (e.g., if the user creates a custom technology for a project and supplies a project-specific heat rate that shoudl be enough)
 
