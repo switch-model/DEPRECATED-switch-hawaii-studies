@@ -9,3 +9,7 @@ outputs/
 inputs_*/
 outputs_*/
 runfile*.txt
+
+# folders cloned from other repositories
+switch/
+switch-hawaii-core/
