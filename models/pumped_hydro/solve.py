@@ -51,9 +51,8 @@ print "loading model..."
 
 switch_model = define_AbstractModel(
     'switch_mod', 'fuel_cost', 'project.no_commit', 
-    #'project.unitcommit', 'project.unitcommit.discrete', 
-    #'demand_response', 'rps',
-    'switch_patch'
+    'switch_patch',
+    'rps', 'batteries' #, 'demand_response'
 )
 switch_model.iis = Suffix(direction=Suffix.IMPORT)
 switch_model.dual = Suffix(direction=Suffix.IMPORT)

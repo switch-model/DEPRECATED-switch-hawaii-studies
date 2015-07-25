@@ -23,15 +23,16 @@ Added by MF 2015-06-19:
 
 average fuel costs for 2007-08 from Michael Roberts and Karl Jandoc
 TODO: setup switch to accept fuel costs by date and plant, and use the more detailed costs from "Matthias ECAF prices.xlsx"
+TODO: get historical costs for other islands
 
-drop table if exists ecaf_costs;
+DO $$ BEGIN PERFORM drop_temporary_table('ecaf_costs'); END $$;
 create temporary table ecaf_costs (year int, fuel varchar(20), fuel_cost double precision);
 \COPY ecaf_costs FROM 'fuel_cost_ecaf_annual.csv' WITH (FORMAT CSV, HEADER);
 
 insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
     select 'Oahu' as load_zone, year, fuel as fuel_type, 
-            fuel_cost as price_mmbtu, 3 as fuel_scen_id
-        from ecaf_costs;
+            fuel_cost as price_mmbtu, f.fuel_scen_id
+        from ecaf_costs cross join generate_series(1, 3) AS f(fuel_scen_id);
 
 # somehow coal got inserted into the fuel cost database as fuel_scen_id=2 (high), even though 
 # it is in fueL-prices_heco_irp.csv as fuel_scen_id=3. We will just use the same costs for all 3 for now.
@@ -42,4 +43,49 @@ insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
 insert into fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
     select load_zone, year, fuel_type, price_mmbtu, 3 as fuel_scen_id
         from fuel_costs where load_zone='Oahu' and fuel_type='Coal' and fuel_scen_id=2;
-    
+
+##########
+-- Project fuel costs from 2034 to 2050, assuming the same rate of change as during 2024-33:
+
+DO $$ BEGIN PERFORM drop_temporary_table('inflators'); END $$;
+
+create temporary table inflators AS
+    select a.load_zone, a.fuel_type, a.fuel_scen_id, 
+        power(b.price_mmbtu/a.price_mmbtu, 1.0/(b.year-a.year+1)) as inflator
+    from fuel_costs a join fuel_costs b using (load_zone, fuel_type, fuel_scen_id)
+    where a.year=2024 and b.year=2033;
+-- we don't want any prices to grow slower than general inflation (2.5%) after 2033
+-- because that creates the implausible situation that real biofuel prices keep falling
+-- indefinitely.
+update inflators set inflator=1.025 where inflator < 1.025;
+
+DELETE FROM fuel_costs WHERE year > 2033;
+INSERT INTO fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
+    SELECT a.load_zone, f.year, a.fuel_type, 
+        a.price_mmbtu * power(i.inflator, f.year-a.year) AS price_mmbtu,
+        a.fuel_scen_id
+    FROM fuel_costs a 
+        JOIN inflators i USING (load_zone, fuel_type, fuel_scen_id)
+        CROSS JOIN generate_series(2033+1, 2050) AS f(year)
+    WHERE a.year=2033;
+
+##########
+-- fuel_scen_id=3 is our main fuel price scenario, but it's just calculated as the average of
+-- HECO's low (fuel_scen_id=1) and high (fuel_scen_id=1) scenarios.
+-- Somehow the data was for fuel_scen_id=3 for Biocrude on Hawaii (island) was inserted as Biodiesel,
+-- making 2 Biodiesel records and no Biocrude records.
+-- Also, it does't make much sense to have fuel scenario 3 equal to the average of 1 and 2 before
+-- 2034 and then follow the same exponential growth trajectory afterward.
+-- So we delete all the records for fuel_scen_id=3 and reconstruct them.
+
+DELETE FROM fuel_costs WHERE fuel_scen_id=3 AND year >= 2015;
+INSERT INTO fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
+    SELECT a.load_zone, a.year, a.fuel_type, 
+        (a.price_mmbtu + b.price_mmbtu)/2 AS price_mmbtu,
+        3 AS fuel_scen_id
+    FROM fuel_costs a JOIN fuel_costs b USING (load_zone, year, fuel_type)
+    WHERE a.year >= 2015 AND a.fuel_scen_id=1 and b.fuel_scen_id=2;
+
+
+#####
+

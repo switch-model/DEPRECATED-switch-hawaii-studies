@@ -486,3 +486,35 @@ LANGUAGE 'plpgsql' VOLATILE;
 later, this can be run as 
 DO $$ BEGIN PERFORM drop_temporary_table('t'); END $$;
 ===========================
+
+#### extend system_load_scale to 2050, assuming same conditions from 2033 onward.
+# note: this would be easier and more robust in python, because you wouldn't have to 
+# hard-code the column names into the query
+# NOTE: the PL/PGSQL commands below should do the same job as the direct query, 
+# but they are not really easier to read!
+# DO $$
+# DECLARE
+#     last_year integer;
+# BEGIN
+#     SELECT MAX(year_fore) FROM system_load_scale INTO last_year;
+#     RAISE NOTICE 'Adding records after % to system_load_scale', last_year;
+#     EXECUTE '
+#         INSERT INTO system_load_scale
+#             SELECT load_zone, year_hist, load_scen_id,
+#                 f.year as year_fore,
+#                 peak_hist, peak_fore, avg_hist, avg_fore, scale, offset
+#             FROM system_load_scale s
+#                 CROSS JOIN generate_series($1+1, 2050) as f(year)
+#             WHERE s.year_fore = $1;
+#     ' USING last_year
+# END
+# $$;
+INSERT INTO system_load_scale
+    SELECT load_zone, year_hist, load_scen_id, 
+        f.year as year_fore, 
+        peak_hist, peak_fore, avg_hist, avg_fore, scale, "offset"
+    FROM system_load_scale s
+        CROSS JOIN generate_series((SELECT MAX(year_fore) as last_year FROM system_load_scale)+1, 2050) 
+            AS f(year)
+    WHERE s.year_fore = (SELECT MAX(year_fore) as last_year FROM system_load_scale);
+
