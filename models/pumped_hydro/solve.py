@@ -50,7 +50,7 @@ switch_model = None
 switch_instance = None
 results = None
 
-def solve(rps=True, demand_response=False, renewables=True, ev=True, tag=None):
+def solve(rps=True, demand_response=False, renewables=True, ev=True, pumped_hydro=True, tag=None):
     global switch_model, switch_instance, results
 
     modules = ['switch_mod', 'fuel_cost', 'project.no_commit', 'switch_patch', 'batteries']
@@ -64,6 +64,8 @@ def solve(rps=True, demand_response=False, renewables=True, ev=True, tag=None):
         modules.append('ev')
     else:
         modules.append('no_ev')
+    if pumped_hydro:
+        modules.append('pumped_hydro')
         
     log('using modules: {m}\n'.format(m=modules))
 
@@ -81,7 +83,7 @@ def solve(rps=True, demand_response=False, renewables=True, ev=True, tag=None):
 
     if rps:
         #  make sure the targets got set right
-        switch_instance.rps_targets_for_period.pprint()
+        switch_instance.rps_target_for_period.pprint()
 
     log("solving model...\n"); tic()
     results = opt.solve(switch_instance, keepfiles=False, tee=True, 

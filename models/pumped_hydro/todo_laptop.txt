@@ -1,0 +1,35 @@
++ get a tiny rps dataset that reaches 2045 (rps_tiny)
+project +loads, -equipment costs and +fuel costs to 2050
+
++ convert future fuel costs from nominal to real based on inflation used in HECO IRP reports (maybe 2.5%/year according to p. K-97 of http://www.hawaiianelectric.com/vcmcontent/IntegratedResource/IRP/PDF/IRP-2013-App-K-Supply-Side-Resource-Assessment-062813-Filed.pdf)
+
++ check that connection cable costs are not overstated by 1000 for wind projects
+
+- eventually: use different capital costs for generator projects each year and account for inflation. For now, we assume capital costs for all technologies are constant in real terms.
+
+project ev adoption to 2050 (use /Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/data/HECO IRP Report/IRP-2013-App-E-Quantifying-the-Scenarios-062813-Filed.pdf and something more aggressive)
+
+use RPS module
+create demand response module that models demand response as simple shiftable load
++ create battery module that models standard storage
+(dr and batteries are like kauai model)
+create pumped_hydro model that models wilson pumped hydro project
+
++get solve.py to accept arguments, e.g., names of elements to add:
+	ph, dr, ev, biofuel yes/no, rps yes/no, high_fuel/low_fuel costs?, low_battery/high_battery costs?, +low_load/high_load?, wind?
++Then it should add the appropriate modules and set the tag for output files.
+
+create a full rps time_sample (rps)
+create a mini rps time_sample (rps_mini), which only covers even months and even hours
+
+build a scenario tree:
+*no_rps	no_ph	no_dr	no_ev
+
+rps	no_ph	no_dr	no_ev
+		dr	no_ev
+			ev
+	
+	ph	no_dr	no_ev
+		dr	no_ev
+*			ev
+

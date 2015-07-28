@@ -19,7 +19,7 @@ project +loads, -equipment costs and +fuel costs to 2050
 (ev, dr and batteries are like kauai model)
 
 
-! create pumped_hydro model that models wilson pumped hydro project
++ create pumped_hydro model that models wilson pumped hydro project
 
 +get solve.py to accept arguments, e.g., names of elements to add:
 	ph, dr, ev, biofuel yes/no, rps yes/no, high_fuel/low_fuel costs?, low_battery/high_battery costs?, +low_load/high_load?, wind?

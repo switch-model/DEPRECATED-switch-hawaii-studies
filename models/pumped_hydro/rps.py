@@ -18,10 +18,15 @@ def define_components(m):
     m.RPS_ENERGY_SOURCES = Set(initialize=rps_energy_sources)
     m.RPS_DATES = Set(initialize=sorted(rps_data.keys()), ordered=True)
     m.rps_targets = Param(m.RPS_DATES, initialize=lambda m, y: rps_data[y])
-    m.rps_target_for_period = Param(m.PERIODS, initialize=lambda m, period:
+
+    def rps_target_for_period_rule(m, p):
         # find the last target that is in effect before the end of the period
         # note that RPS_DATES is 1-based
-        m.rps_targets[m.RPS_DATES[bisect.bisect_right(m.RPS_DATES, period)-1]])
+        # this could use code like the following, but it is hard to read and tends to fail
+        # m.rps_targets[m.RPS_DATES[bisect.bisect_right(m.RPS_DATES, period)-1]]
+        latest_target = max(y for y in m.RPS_DATES if y < p + m.period_length_years[p])
+        return m.rps_targets[latest_target]
+    m.rps_target_for_period = Param(m.PERIODS, initialize=rps_target_for_period_rule)
 
     m.RPS_Enforce = Constraint(m.PERIODS, rule=lambda m, per:
         ( # RE Sources
