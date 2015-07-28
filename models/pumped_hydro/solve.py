@@ -25,6 +25,7 @@ from switch_mod.utilities import define_AbstractModel
 
 add_relative_path('switch-hawaii-core') # common components of switch-hawaii
 import util
+from util import tic, toc, log
 
 add_relative_path('.') # components for this particular study
 
@@ -36,11 +37,6 @@ opt = SolverFactory("cplex", solver_io="nl")
 # number of units available
 opt.options['mipgap'] = 0.001
 
-# label to attach to results files
-tag = None
-
-print "loading model..."
-
 # tell pyomo to make all parameters mutable by default
 # (I only need to change lz_demand_mw, but this is currently the only way to make
 # any parameter mutable without changing the core code.)
@@ -49,30 +45,54 @@ print "loading model..."
 # This may be a pyomo bug, but it's hard to work around in the short term.
 # Param.DefaultMutable = True
 
-switch_model = define_AbstractModel(
-    'switch_mod', 'fuel_cost', 'project.no_commit', 
-    'switch_patch',
-    'rps', 'batteries' #, 'demand_response'
-)
-switch_model.iis = Suffix(direction=Suffix.IMPORT)
-switch_model.dual = Suffix(direction=Suffix.IMPORT)
+# define global variables for convenient access in interactive session
+switch_model = None
+switch_instance = None
+results = None
 
-switch_instance = switch_model.load_inputs(inputs_dir="inputs")
+def solve(rps=True, demand_response=False, renewables=True, ev=True, tag=None):
+    global switch_model, switch_instance, results
 
-results = None  # defined globally for convenient access in interactive session
+    modules = ['switch_mod', 'fuel_cost', 'project.no_commit', 'switch_patch', 'batteries']
+    if rps:
+        modules.append('rps')
+    if not renewables:
+        modules.append('no_renewables')
+    if demand_response:
+        modules.append('demand_response')
+    if ev:
+        modules.append('ev')
+    else:
+        modules.append('no_ev')
+        
+    log('using modules: {m}\n'.format(m=modules))
 
-def solve():
-    global switch_model, switch_instance, results, tag
+    log("defining model... "); tic()
+    switch_model = define_AbstractModel(*modules)
+    switch_model.iis = Suffix(direction=Suffix.IMPORT)
+    switch_model.dual = Suffix(direction=Suffix.IMPORT)
 
-    print "solving model..."
-    start = time.time()
+    toc()   # done defining model
+
+
+    log("loading model data... "); tic()
+    switch_instance = switch_model.load_inputs(inputs_dir="inputs")
+    toc()
+
+    if rps:
+        #  make sure the targets got set right
+        switch_instance.rps_targets_for_period.pprint()
+
+    log("solving model...\n"); tic()
     results = opt.solve(switch_instance, keepfiles=False, tee=True, 
         symbolic_solver_labels=True, suffixes=['dual', 'iis'])
-    print "Total time in solver: {t}s".format(t=time.time()-start)
+    log("Solver finished; "); toc()
 
     # results.write()
+    log("loading solution... "); tic()
     switch_instance.solutions.load_from(results)
-
+    toc()
+    
     if results.solver.termination_condition == TerminationCondition.infeasible:
         print "Model was infeasible; Irreducible Infeasible Set (IIS) returned by solver:"
         print "\n".join(c.cname() for c in switch_instance.iis)
@@ -160,9 +180,17 @@ def write_results(tag=None):
 ###############
     
 if __name__ == '__main__':
+    args={}
+    for arg in sys.argv[1:]:
+        if arg.startswith('no_'):
+            args[arg[3:]] = False
+        elif arg.startswith('tag='):
+            args['tag'] = arg[4:]   # label to attach to results files
+        else:
+            args[arg] = True
     # catch errors so the user can continue with a solved model
     try:
-        solve()
+        solve(**args)
     except Exception, e:
         traceback.print_exc()
         print "ERROR:", e
