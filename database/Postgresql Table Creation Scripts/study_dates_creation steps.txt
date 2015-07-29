@@ -389,30 +389,41 @@ insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sam
     where time_sample='rps_test_45'
     order by 1, 2;
 
-# Create a full RPS study based on the "main" time samples, 
-# but shifted into the future
+# Create an RPS study based on the "main" time samples, but shifted into the future
+
+delete from study_date where time_sample='rps';
 insert into study_date (period,  study_date, month_of_year, date, hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
-  select cast(2020+(period-2015)*10.0/3.0 as int) as period, 
+  select 2021 + 8 * cast((period-2015)/3.0 as int) as period, 
     study_date,
-    month_of_year, date, hours_in_sample*10.0/3.0 as hours_in_sample, 
+    month_of_year, date, 8.0*hours_in_sample/3.0 as hours_in_sample, 
     'rps' as time_sample, ts_num_tps, 
-    ts_duration_of_tp, ts_scale_to_period*10.0/3.0 as ts_scale_to_period
+    ts_duration_of_tp, 8.0*ts_scale_to_period/3.0 as ts_scale_to_period
   from study_date where time_sample = 'main';
+-- note: this comes after, so it can use the new value of period.
+-- also note: it has to be run twice because it can create duplicate keys otherwise
+update study_date 
+    set study_date=(-1)*(mod(period, 100)*1e7+mod(study_date,1e7))
+    where time_sample = 'rps';
+update study_date 
+    set study_date=(-1)*study_date 
+    where time_sample = 'rps' and study_date < 0;
 
-update study_date set study_date=mod(period, 100)*1e7+mod(study_date,1e7) where time_sample = 'rps';
-
+delete from study_hour where time_sample='rps';
 insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
   select study_date, study_hour, hour_of_day, date_time, 
     'rps' as time_sample
-  from study_hour where time_sample = 'main';
+  from study_hour where time_sample = 'main'
+  order by 1, 2;
 update study_hour 
-  set study_date = (20+(trunc(study_date/1e7)-15)*10.0/3.0)*1e7+mod(study_date,1e7),
-    study_hour = (20+(trunc(study_hour/1e8)-15)*10.0/3.0)*1e8+mod(study_hour,1e8)
+  set study_date = (21+(trunc(study_date/1e7)-15)*8.0/3.0)*1e7+mod(study_date,1e7),
+    study_hour = (21+(trunc(study_hour/1e8)-15)*8.0/3.0)*1e8+mod(study_hour,1e8)
   where time_sample = 'rps';
 
-
-
-(20+(trunc(1501017301/1e8)-15)*10.0/3.0)*1e8+mod(1501017301,1e8)
+delete from study_periods where time_sample='rps';
+insert into study_periods
+    select distinct time_sample, period from study_date
+    where time_sample='rps'
+    order by 2;
 
 select *, '2007' as time_sample 
     from study_date_main where period in (2015, 2018);

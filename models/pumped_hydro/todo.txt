@@ -15,7 +15,7 @@ project +loads, -equipment costs and +fuel costs to 2050
 
 + create battery module that models standard storage
 
-! create demand response module that models demand response as simple shiftable load
++ create demand response module that models demand response as simple shiftable load
 (ev, dr and batteries are like kauai model)
 
 
@@ -31,8 +31,10 @@ project +loads, -equipment costs and +fuel costs to 2050
 
 - get solve.py to use the datafile aliasing option to switch between low and high EV adoption scenarios
 
-! create a full rps time_sample (rps)
-! create a mini rps time_sample (rps_mini), which only covers even months and even hours
++ check whether projects can be / are rebuilt after they reach their maximum age (i.e., why is wind dropping off in late years?) (forced BuildProj["Oahu_Wind_503_na", 2045] == 117.5 and it rebuilt it, but this raised costs overall)
+
+! create an rps time_sample which has two days in every even numbered month
+- create a mini rps time_sample (rps_mini), which only covers even months and even hours
 
 run three scenarios:
 1. no rps, no renewables, no ev adoption (use "no_ev" module to get driving cost included), no pumped hydro, no demand response

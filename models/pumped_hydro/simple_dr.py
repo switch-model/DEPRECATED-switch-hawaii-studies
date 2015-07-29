@@ -4,14 +4,14 @@ from switch_mod.financials import capital_recovery_factor as crf
 
 def define_components(m):
     
-    m.demand_response_max_share = Param(initialize=0.30)
+    m.demand_response_max_share = Param(default=0.15)
 
     # adjustment to demand during each hour (positive = higher demand)
-    m.DemandResponse = Var(m.LOAD_ZONES, m.TIMEPOINTS, within=NonNegativeReals)
+    m.DemandResponse = Var(m.LOAD_ZONES, m.TIMEPOINTS, within=Reals)
     
     # don't reduce demand by more than 30% in any hour
     m.Demand_Response_Max_Reduction = Constraint(m.LOAD_ZONES, m.TIMEPOINTS, rule=lambda m, z, t:
-        m.DemandResponse >= (-1.0) * m.demand_response_max_share * m.lz_demand_mw[z, t]
+        m.DemandResponse[z, t] >= (-1.0) * m.demand_response_max_share * m.lz_demand_mw[z, t]
     )
     
     # all changes to demand must balance out over the course of the day

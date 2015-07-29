@@ -36,21 +36,20 @@ opt = SolverFactory("cplex", solver_io="nl")
 # relax the integrality constraints, to allow commitment constraints to match up with 
 # number of units available
 opt.options['mipgap'] = 0.001
-
-# tell pyomo to make all parameters mutable by default
-# (I only need to change lz_demand_mw, but this is currently the only way to make
-# any parameter mutable without changing the core code.)
-# NOTE: this causes errors like "TypeError: unhashable type: '_ParamData'" 
-# when any parameters are used as indexes into a set (e.g., m.ts_scale_to_period[ts])
-# This may be a pyomo bug, but it's hard to work around in the short term.
-# Param.DefaultMutable = True
+# display more information during solve
+opt.options['display'] = 1
+opt.options['bardisplay'] = 1
 
 # define global variables for convenient access in interactive session
 switch_model = None
 switch_instance = None
 results = None
 
-def solve(rps=True, demand_response=False, renewables=True, ev=True, pumped_hydro=True, tag=None):
+def solve(
+    inputs='inputs', 
+    rps=True, demand_response=True, renewables=True, ev=True, pumped_hydro=True, 
+    tag=None
+    ):
     global switch_model, switch_instance, results
 
     modules = ['switch_mod', 'fuel_cost', 'project.no_commit', 'switch_patch', 'batteries']
@@ -59,7 +58,7 @@ def solve(rps=True, demand_response=False, renewables=True, ev=True, pumped_hydr
     if not renewables:
         modules.append('no_renewables')
     if demand_response:
-        modules.append('demand_response')
+        modules.append('simple_dr')
     if ev:
         modules.append('ev')
     else:
@@ -74,16 +73,16 @@ def solve(rps=True, demand_response=False, renewables=True, ev=True, pumped_hydr
     switch_model.iis = Suffix(direction=Suffix.IMPORT)
     switch_model.dual = Suffix(direction=Suffix.IMPORT)
 
+    # # force re-building wind in 2045, and see if that makes the model infeasible or prevents earlier building
+    # switch_model.Force_Wind = Constraint(rule=lambda m:
+    #     m.BuildProj["Oahu_Wind_503_na", 2045] == 117.5
+    # )
+
     toc()   # done defining model
 
-
-    log("loading model data... "); tic()
-    switch_instance = switch_model.load_inputs(inputs_dir="inputs")
+    log("loading model data from {} dir... ".format(inputs)); tic()
+    switch_instance = switch_model.load_inputs(inputs_dir=inputs)
     toc()
-
-    if rps:
-        #  make sure the targets got set right
-        switch_instance.rps_target_for_period.pprint()
 
     log("solving model...\n"); tic()
     results = opt.solve(switch_instance, keepfiles=False, tee=True, 
@@ -111,11 +110,14 @@ def solve(rps=True, demand_response=False, renewables=True, ev=True, pumped_hydr
     print "Solved model"
     print "======================================================="
     print "Total cost: ${v:,.0f}".format(v=value(switch_instance.Minimize_System_Cost))
+    
+    if pumped_hydro:
+        switch_instance.BuildPumpedHydroMW.pprint()
         
-    write_results(tag=tag)
+    write_results(switch_instance, tag=tag)
 
 
-def write_results(tag=None):
+def write_results(m, tag=None):
     # format the tag to append to file names (if any)
     if tag is not None:
         t = "_"+str(tag)
@@ -130,24 +132,24 @@ def write_results(tag=None):
         raise RuntimeError("Unable to create output directory {dir}.".format(dir=output_dir))
     
     # write out results
-    util.write_table(switch_instance, switch_instance.TIMEPOINTS,
+    util.write_table(m, m.TIMEPOINTS,
         output_file=os.path.join(output_dir, "dispatch{t}.txt".format(t=t)), 
-        headings=("timepoint_label",)+tuple(switch_instance.PROJECTS),
+        headings=("timepoint_label",)+tuple(m.PROJECTS),
         values=lambda m, t: (m.tp_timestamp[t],) + tuple(
             m.DispatchProj_AllTimePoints[p, t] 
             for p in m.PROJECTS
         )
     )
     util.write_table(
-        switch_instance, switch_instance.LOAD_ZONES, switch_instance.TIMEPOINTS, 
+        m, m.LOAD_ZONES, m.TIMEPOINTS, 
         output_file=os.path.join(output_dir, "energy_sources{t}.txt".format(t=t)), 
         headings=
             ("load_zone", "timepoint_label")
-            +tuple(switch_instance.FUELS)
-            +tuple(switch_instance.NON_FUEL_ENERGY_SOURCES)
-            +tuple("curtail_"+s for s in switch_instance.NON_FUEL_ENERGY_SOURCES)
-            +tuple(switch_instance.LZ_Energy_Components_Produce)
-            +tuple(switch_instance.LZ_Energy_Components_Consume)
+            +tuple(m.FUELS)
+            +tuple(m.NON_FUEL_ENERGY_SOURCES)
+            +tuple("curtail_"+s for s in m.NON_FUEL_ENERGY_SOURCES)
+            +tuple(m.LZ_Energy_Components_Produce)
+            +tuple(m.LZ_Energy_Components_Consume)
             +("marginal_cost",),
         values=lambda m, z, t: 
             (z, m.tp_timestamp[t]) 
@@ -172,6 +174,16 @@ def write_results(tag=None):
                     for component in m.LZ_Energy_Components_Consume)
             +(m.dual[m.Energy_Balance[z, t]]/m.bring_timepoint_costs_to_base_year[t],)
     )
+    
+    built_proj = tuple(set(
+        pr for pe in m.PERIODS for pr in m.PROJECTS if value(m.ProjCapacity[pr, pe]) > 0.001
+    ))
+    util.write_table(m, m.PERIODS,
+        output_file=os.path.join(output_dir, "capacity{t}.txt".format(t=t)), 
+        headings=("period",)+built_proj,
+        values=lambda m, pe: (pe,) + tuple(m.ProjCapacity[pr, pe] for pr in built_proj)
+    )
+    
 
     # import pprint
     # b=[(pr, pe, value(m.BuildProj[pr, pe]), m.proj_gen_tech[pr], m.proj_overnight_cost[pr, pe]) for (pr, pe) in m.BuildProj if value(m.BuildProj[pr, pe]) > 0]
@@ -188,6 +200,8 @@ if __name__ == '__main__':
             args[arg[3:]] = False
         elif arg.startswith('tag='):
             args['tag'] = arg[4:]   # label to attach to results files
+        elif arg.startswith('inputs='):
+            args['inputs'] = arg[7:]   # directory to read inputs from
         else:
             args[arg] = True
     # catch errors so the user can continue with a solved model

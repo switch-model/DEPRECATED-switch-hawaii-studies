@@ -13,7 +13,7 @@ import scenario_data
 # particular settings chosen for this case
 # (these will be passed as arguments when the queries are run)
 args = dict(
-    time_sample = "rps_test_45",       # could be '2007', '2016test', 'rps_test' or 'main'
+    time_sample = "rps_test_45",       # could be '2007', '2016test', 'rps_test_45', 'rps' or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
     load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion"
     fuel_scen_id = 3,            # 1=low, 2=high, 3=reference
@@ -37,11 +37,12 @@ args.update(
 )
 
 args.update(
-    pumped_hydro_capital_cost=2800+35000/100,
+    pumped_hydro_capital_cost_per_mw=2800*1000+35e6/150,
     pumped_hydro_project_life=50,
-    pumped_hydro_fixed_om_percent=0.02,
+    pumped_hydro_fixed_om_percent=0.015,    # use the low-end O&M, because it always builds the big version
     pumped_hydro_efficiency=0.8,
     pumped_hydro_inflow_mw=10,
+    pumped_hydro_max_capacity_mw=1000,
 )
 
 if "skip_cf" in sys.argv:
