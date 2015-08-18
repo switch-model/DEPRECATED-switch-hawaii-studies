@@ -766,3 +766,473 @@ update existing_plants_cap_factor c
 select distinct technology, load_zone, site, project_id 
     from existing_plants_cap_factor;
 
+
+
+#############################################################################################
+#############################################################################################
+
+
+The following parts were added by Paritosh Das, 2015-08-03. 
+
+###############################
+# create a temporary table (existing_plants_temp) for existing_plants so as to incorporate all the potential changes and also have a working backup.Once you are ok with all the changes, you can rename this temp to existing_plants.
+ 
+create table existing_plants_temp AS 
+select * from existing_plants;
+
+
+#  add column plant_status, indicating the status of all the plants -- proposed, permitted, under construction or built.
+
+alter table existing_plants_temp add column project_status varchar(50);
+
+#update the exisiting projects to status 'built'
+update existing_plants_temp
+    set project_status = 'built'
+    where project_status IS NULL;
+
+
+# update the maximum age of the existing plants according to the deactivation dates in heco PSIP
+which is summarized in the excel file hi_plant_retirement_data.xlsx
+
+###############################
+heco operated plants:
+###############################
+update existing_plants_temp
+    set max_age = 2023 - build_year
+    where project_id = ('Oahu_Kahe_K1','Oahu_Kahe_K2');
+
+update existing_plants_temp
+    set max_age = 2024 - build_year
+    where project_id = ('Oahu_Kahe_K3','Oahu_Kahe_K4');
+
+update existing_plants_temp
+    set max_age = 2022 - build_year
+    where project_id IN ('Oahu_Kahe_K5','Oahu_Kahe_K6');
+
+update existing_plants_temp
+    set max_age = 2030 - build_year
+    where project_id = 'Oahu_Waiau_W7_W8';
+
+update existing_plants_temp
+    set max_age = 2014 - build_year
+    where project_id IN ('Oahu_Honolulu_H8','Oahu_Honolulu_H9');
+
+update existing_plants_temp
+    set max_age = 2017 - build_year
+    where project_id IN ('Oahu_Waiau_W3','Oahu_Waiau_W4');
+
+update existing_plants_temp
+    set max_age = 2028 - build_year
+    where project_id IN ('Oahu_Waiau_W5','Oahu_Waiau_W6');
+###############################
+###############################
+IPP operated plants:
+###############################
+update existing_plants
+    set max_age = 2023 - build_year
+    where project_id = 'Oahu_Kalaeloa_CC1_CC2';
+
+update existing_plants
+    set max_age = 2022 - build_year
+    where project_id = 'Oahu_AES_GEN1';
+
+###############################
+
+******************************************
+PAGE 5-18 (PSIP)
+The AES facility is expected to be a viable generator after the expiration of the existing PPA and would be a candidate for a new PPA in the succeeding time period, provided the operating limitations, environmental limitations, fuel optionality, and pricing permit.
+Because AES is an IPP, it is impossible to identify its value in the future without a
+finalized contract identifying pricing, operating flexibility, and its contribution to RPS.
+******************************************
+
+# todo : although HECO-PSIP is only planning to 2030 But we need forecasts upto 2045 for our simulations,
+thus for plants W9,W10,CT-1. As there is no avaiable references for their activities beyond 2030, can we assume that they also run till 2045 ?
+
+###############################
+
+
+###############################
+##LNG Conversion Costs options:
+HI RPS Study - page 37,38
+HECO IRP 2013 - page 9-5, 10-2(about CIP CT-1), 20-7 to 20-9
+HECO PSIP - page C-6 (Post-processing), K-1(Capital Investments), K-47 (LNG Investments from 2015-2020 are almost $180,257,867 ($180 Million)
+HNEI (Liquefied Natural Gas for Hawaii: Policy, Economic, and Technical Questions)- page 102 to 107 
+http://www.hawaiigas.com/media/1222/lng_for_hawaii-policy_economic_tech_questions.pdf
+###############################
+
+###############################
+##conversion of plants Waiau 8 and 9 (and maybe CIP CT-1(from Biodiesel)) as using ULSD (from High-Sulfur-Diesel), since that is HECO's plan(pp. 5-20 and L-9 of PSIP). However HECO is considering Waiau 9 and 10, and CT-1, all simple-cycle combustion turbines, as candidates to be converted to LNG operation, and such conversions will be evaluated.
+
+##Optional
+update existing_plants_temp
+    set aer_fuel_code = 'ULSD'
+    where plant_name ='Waiau' and generator_id in ('W9','W10');
+
+update existing_plants_temp
+    set aer_fuel_code = 'ULSD'
+    where plant_name ='CIP' and generator_id = 'CIP1';
+###############################
+
+###############################
+#size of plant_name varibale is changed from 15 to 50
+ALTER TABLE existing_plants_temp ALTER COLUMN plant_name TYPE character varying(50);
+
+#add the new projects from PSIP and also (EIA860-2013) as exisiting projects.
+
+#Some of the waiver projects mentioned in PUC dockets and PSIP don't have 
+EIA utility Id or Plant or Generator Id, so these data have been filled as dummy data
+but can be later updated once they get updated in EIA 860 recent versions.
+
+
+1.
+
+Wind
+58718
+Utility Name-Na Pua Makani Power Partners LLC
+Plant Code-58837
+Plant Name-Na Pua Makani Wind Project
+Generator ID-WT1
+Prime Mover-WT
+Nameplate Capacity (MW)-24
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58837,'WT1','WT','WND',24,24,0,2016,'WND','NaPuaMakaniWind','permitted');
+
+#Solar
+
+#Waiver Projects
+
+2.
+
+Approved
+Kawailoa Solar, LLC 
+PV 49MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500001,'Kawailoa Solar','PV','SUN',49,49,0,2017,'SUN','KawailoaSolar','permitted');
+
+3.
+
+Approved
+Lanikuhana Solar also called as Mililani South PV II, LLC 
+PV
+14.7MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500002,'Lanikuhana Solar','PV','SUN',14.7,14.7,0,2017,'SUN','LanikuhanaSolar','permitted');
+
+4.
+
+Approved
+Waiawa PV, LLC 
+PV
+45.9MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500003,'Waiawa PV','PV','SUN',45.9,45.9,0,2017,'SUN','WaiawaPV','permitted');
+
+
+5.
+
+Approved
+Waianae Solar 
+PV
+27.6MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500004,'Waianae Solar','PV','SUN',27.6,27.6,0,2017,'SUN','WaianaeSolar','permitted');
+
+6.
+
+Proposed
+Ka La Nui Solar Project
+PV
+13.8MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500005,'Ka La Nui Solar','PV','SUN',13.8,13.8,0,2017,'SUN','KaLaNuiSolar','proposed');
+
+7.
+
+PROPOSED
+Waiawa Solar Project 
+PV
+50MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+ (500006,'Waiawa Solar','PV','SUN',50,50,0,2017,'SUN','WaiawaSolar','proposed');
+
+8.
+
+PROPOSED
+Ho'ohana Solar Park
+PV
+19MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500007,'Hoohana Solar','PV','SUN',19,19,0,2017,'SUN','HoohanaSolar','proposed');
+
+
+9.
+
+PROPOSED
+Mililani South Solar Park I
+PV
+20MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500008,'Mililani South PV I','PV','SUN',20,20,0,2017,'SUN','MililaniSouthPVI','proposed');
+
+10.
+
+PROPOSED
+KAHE PV
+PV
+11.5MW
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500009,'Kahe PV','PV','SUN',11.5,11.5,0,2017,'SUN','KahePV','proposed');
+
+11.
+
+PROPOSED
+Schofield Generating Station
+Biofuel
+50MW
+
+# get heat_rate and all other remaining data from generator_costs table
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(500010,'Schofield Generating Station','IC','Biodiesel',50,50,2018,'ORW','Schofield','proposed');
+
+12.
+
+BUILT (From 860-2013)
+58611
+Utility Name-Forest City Sustainable Resources Pearl City LLC
+Plant Code-58676
+Plant Name-Pearl City Peninsula Solar Park
+Generator ID-PCPPV
+Prime Mover-PV
+Nameplate Capacity (MW)-1
+Operating Year-2012
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58676,'PCPPV','PV','SUN',1,1,0,2012,'SUN','PearlCity','built');
+
+13.
+
+BUILT (From 860-2013)
+58611
+Utility Name-Forest City Sustainable Resources Pearl City LLC
+Plant Code-58684
+Plant Name-Kapolei Solar Energy Park
+Generator ID-KSEPV
+Prime Mover-PV
+Nameplate Capacity (MW)-1
+Operating Year-2012
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58684,'KSEPV','PV','SUN',1,1,0,2012,'SUN','KapoleiSolarEnergyPark','built');
+
+14.
+
+BUILT (From 860-2013)
+58596
+Utility Name-Hanwha Q CELLS USA
+Plant Code-58651
+Plant Name-Kalaeloa Renewable Energy Park
+Generator ID-KREP
+Prime Mover-PV
+Nameplate Capacity (MW)-5
+Operating Year-2013
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, heat_rate, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58651,'KREP','PV','SUN',5,5,0,2013,'SUN','KalaeloaRenewableEnergyPark','built');
+
+
+15.
+
+BUILT (From 860-2013)
+49846
+Utility Name-Covanta Honolulu Resource Recovery
+Plant Code-10334
+Plant Name-H Power
+Generator ID-GEN2
+Prime Mover-ST
+Summer Capacity (MW)-28
+Operating Year-2013
+
+### HAVE TO CALCULATE avg_mw and heat_rate
+# get heat_rate,avg_mw and all other remaining data from generator_costs table
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(10334,'GEN2','ST','MLG',28,2013,'MLG','HPOWER','built');
+
+
+16.
+
+APPROVED UNDER cONSTRUCTION
+19547
+Utility Name-Hawaiian Electric Co Inc
+Plant Code-58469
+Plant Name-HNL Emergency Power Facility
+Generator ID-AP1 TO AP4
+Prime Mover-IC
+Nameplate Capacity (MW)-10 (2.5*4 = 10)
+Operating Year-2015
+
+# get heat_rate and all other remaining data from generator_costs table
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58469,'AP1','IC','Biodiesel',2.5,2.5,2015,'ORW','HNLEmergencyPowerFacility','under construction');
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58469,'AP2','IC','Biodiesel',2.5,2.5,2015,'ORW','HNLEmergencyPowerFacility','under construction');
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58469,'AP3','IC','Biodiesel',2.5,2.5,2015,'ORW','HNLEmergencyPowerFacility','under construction');
+
+insert into existing_plants_temp (plant_code, generator_id, primemover,aer_fuel_code,
+ peak_mw, avg_mw, insvyear, aer_fuel_code_orign, plant_name,
+ project_status) values 
+(58469,'AP4','IC','Biodiesel',2.5,2.5,2015,'ORW','HNLEmergencyPowerFacility','under construction');
+************************************************************
+
+#populate other required data (load_zone,costs) from similar exisitng plants for Wind and Solar plants
+
+update existing_plants_temp
+    set must_run = n.must_run,
+	cogen = n.cogen,
+	load_zone = n.load_zone,
+	variable = n.variable,
+	overnight_cost = n.overnight_cost,
+	fixed_o_m = n.fixed_o_m,
+	variable_o_m = n.variable_o_m,
+	forced_outage_rate = n.forced_outage_rate,
+	max_age = n.max_age,
+	scheduled_outage_rate = n.scheduled_outage_rate,
+	baseload = n.baseload
+    from existing_plants_temp n
+    where existing_plants_temp.aer_fuel_code_orign = n.aer_fuel_code_orign 
+    and  n.aer_fuel_code_orign IN ('WND','SUN')
+    and existing_plants_temp.plant_code_new IS NULL 
+    and n.generator_id != 'DistPV';
+
+
+#populate other required data (load_zone,costs) from similar new plants from generator_costs table for the 4 reciprocating engines plant HNL Emergency Power Facility (2.5*4=10MW) and Schofield Generating Station (50MW) which are supposed to use Biofuel.
+
+## todo: have to calculate avg_mw, for the time being avg_mw = peak_mw
+
+update existing_plants_temp
+    set must_run = n.must_run,
+	cogen = n.cogen,
+	load_zone = n.load_zone,
+	variable = n.variable,
+	baseload = n.baseload
+    from existing_plants_temp n
+    where existing_plants_temp.aer_fuel_code = n.aer_fuel_code 
+    and  n.aer_fuel_code = 'Biodiesel'
+    and existing_plants_temp.plant_code_new IS NULL;
+
+update existing_plants_temp
+    set overnight_cost = n.capital_cost_per_kw,
+	fixed_o_m = n.fixed_o_m,	
+	variable_o_m = n.variable_o_m,
+	heat_rate = n.heat_rate,
+	max_age = max_age_years,	
+	forced_outage_rate = n.forced_outage_rate,
+	scheduled_outage_rate = n.scheduled_outage_rate
+	from generator_costs n
+	where existing_plants_temp.aer_fuel_code = n.fuel
+	and n.fuel = 'Biodiesel'
+	and n.technology = 'Reciprocating'
+    	and existing_plants_temp.plant_code_new IS NULL;
+
+
+#populate other required data (load_zone,costs,heat_rate) for the HPower's(plant_code=10334) addition of a second Gen2 of 28MW to its exisiting Gen1 of 60MW capacity
+## todo: have to calculate avg_mw and heat_rate
+
+
+update existing_plants_temp
+    set must_run = n.must_run,
+	cogen = n.cogen,
+	load_zone = n.load_zone,
+	variable = n.variable,
+	overnight_cost = n.overnight_cost,
+	fixed_o_m = n.fixed_o_m,
+	variable_o_m = n.variable_o_m,
+	forced_outage_rate = n.forced_outage_rate,
+	max_age = n.max_age,
+	scheduled_outage_rate = n.scheduled_outage_rate,
+	baseload = n.baseload
+    from existing_plants_temp n
+    where existing_plants_temp.plant_name = n.plant_name
+    and  n.plant_name ='HPower'
+    and existing_plants_temp.plant_code_new IS NULL;
+
+######################################
+(#Dr. Fripp: I have left the avg_mw and heat_rate values empty for the folowwing reasons -
+** As this unit was added in 2013 and our initial dataset was from EIA860-2012 and EIA923-2012 so inorder to find the heat rate and avg_mw for the new gen2, I replicated the process that we used earlier using the 2013 data from EIA 860/923 for gen2 only and found out the heat_rate and avg_mw. But now the heat_rate and avg_mw for the gen1 also changes as now the data comes from 2013. So there is an ambiguity that shall we use 2013 data for both Gen1 and Gen2 or use the 2012 data as it is consistent with all the other data and use 2013 data just to get heat_rate and avg_mw to include gen2.
+
+#Currently, the code below follows the later option.After calculation using the same querys to find avg_mw and heat_rate,
+the GEN2 had heat_rate = 17347.9714999012 and avg_mw = 7.19647422883611
+and GEN1 had heat_rate = 17347.9714999012 and avg_mw = 13.6433157255018
+whereas earlier GEN1 had a heat_rate = 14217.2738961824 and avg_mw = 34.3831047945205
+
+Optionlal Code:
+
+update existing_plants_temp
+    set heat_rate = 17347.9714999012,
+        avg_mw = 7.19647422883611
+    where plant_name='HPower' and generator_id = 'GEN2';
+########################################
+
+#todo: Add capacity factors for new renewable projects of 
+Wind (1 Permitted Project - 24MW) and 
+Solar 258.5 MW (5 Proposed Projects - 114.3 MW, 4 Permitted Projects - 137.2 MW, 3 Built Project- 7 MW)
+
+So how do YOU propose to add the capacity factors for the new projects ? As finding each projects exact location in the grid of potential Central PV sites and then modifying the database to cluster them to form 13 projects of 282.5 MW can be cumbersome and not easy to do. Joshiah was suggesting using NREL'S System Advisor Model (SAM) to get an estimation of capacity factors and power output from potential sites but I haven't used it earlier so don't have much idea about it.  Have you used it earlier ? 
+#############################################################################################
+
+
+
+
+
+
