@@ -47,7 +47,8 @@ results = None
 
 def solve(
     inputs='inputs', 
-    rps=True, demand_response=True, renewables=True, ev=True, pumped_hydro=True, 
+    rps=True, demand_response=True, renewables=True, ev=None, pumped_hydro=True, 
+    ph_year=None, ph_mw=None,
     tag=None
     ):
     global switch_model, switch_instance, results
@@ -59,9 +60,14 @@ def solve(
         modules.append('no_renewables')
     if demand_response:
         modules.append('simple_dr')
-    if ev:
+    if ev is None:
+        # not specified, leave out ev's
+        pass
+    elif ev:
+        # user asked for ev
         modules.append('ev')
     else:
+        # user asked for no_ev
         modules.append('no_ev')
     if pumped_hydro:
         modules.append('pumped_hydro')
@@ -73,10 +79,20 @@ def solve(
     switch_model.iis = Suffix(direction=Suffix.IMPORT)
     switch_model.dual = Suffix(direction=Suffix.IMPORT)
 
-    # # force re-building wind in 2045, and see if that makes the model infeasible or prevents earlier building
-    # switch_model.Force_Wind = Constraint(rule=lambda m:
-    #     m.BuildProj["Oahu_Wind_503_na", 2045] == 117.5
-    # )
+    # force construction of a fixed amount of pumped hydro
+    if ph_mw is not None:
+        print "Forcing construction of {m} MW of pumped hydro.".format(m=ph_mw)
+        switch_model.Build_Pumped_Hydro_MW = Constraint(switch_model.LOAD_ZONES, rule=lambda m, z:
+            m.Pumped_Hydro_Capacity_MW[z, m.PERIODS.last()] == ph_mw
+        )
+    # force construction of pumped hydro only in a certain period
+    if ph_year is not None:
+        print "Allowing construction of pumped hydro only in {p}.".format(p=ph_year)
+        switch_model.Build_Pumped_Hydro_Year = Constraint(
+            switch_model.LOAD_ZONES, switch_model.PERIODS, 
+            rule=lambda m, z, p:
+                m.BuildPumpedHydroMW[z, p] == 0 if p != ph_year else Constraint.Skip
+        )
 
     toc()   # done defining model
 
@@ -194,19 +210,48 @@ def write_results(m, tag=None):
 ###############
     
 if __name__ == '__main__':
-    args={}
-    for arg in sys.argv[1:]:
-        if arg.startswith('no_'):
-            args[arg[3:]] = False
-        elif arg.startswith('tag='):
-            args['tag'] = arg[4:]   # label to attach to results files
-        elif arg.startswith('inputs='):
-            args['inputs'] = arg[7:]   # directory to read inputs from
-        else:
-            args[arg] = True
+    scenarios=[
+        ['no_rps', 'no_renewables', 'no_pumped_hydro', 'tag=base'],
+        ['no_pumped_hydro', 'tag=base_rps'],
+        ['ph_year=2021', 'ph_mw=200', 'tag=ph2021_200'],
+        ['ph_year=2021', 'tag=ph2021'],
+        ['ph_year=2045', 'ph_mw=200', 'tag=ph2045_200'],
+        ['ph_year=2045', 'tag=ph2045'],
+        ['ph_year=2029', 'ph_mw=200', 'tag=ph2029_200'],
+        ['ph_year=2029', 'tag=ph2029'],
+        ['ph_year=2037', 'ph_mw=200', 'tag=ph2037_200'],
+        ['ph_year=2037', 'tag=ph2037'],
+    ]
+
     # catch errors so the user can continue with a solved model
     try:
-        solve(**args)
+        for scenario in scenarios:
+            args=dict() # have to create a new dict, not just assign an empty one, which would get reused
+            for arg in sys.argv[1:] + scenario: # evaluate command line arguments, then scenario arguments
+                if '=' in arg:   # e.g., tag=base
+                    (label, val) = arg.split('=', 1)
+                    for t in [int, float, str]:  # try to convert the value to these types, in order
+                        try:
+                            # convert the value to the specified type
+                            val=t(val)
+                            break
+                        except ValueError:
+                            # ignore value errors, move on to the next
+                            pass
+                    if label=='tag' and 'tag' in args:
+                        # concatenate tags, otherwise override previous values
+                        val = args['tag'] + '_' + val
+                    args[label]=val
+                elif arg.startswith('no_'):     # e.g., no_pumped_hydro
+                    args[arg[3:]] = False
+                else:                           # e.g., ev
+                    args[arg] = True
+            # for each scenario:
+            print 'arguments: {}'.format(args)
+            # if args['tag'] == 'test_base':
+            #     print "skipping base scenario"
+            #     continue
+            solve(**args)
     except Exception, e:
         traceback.print_exc()
         print "ERROR:", e

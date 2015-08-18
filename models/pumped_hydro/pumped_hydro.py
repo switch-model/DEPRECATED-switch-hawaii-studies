@@ -44,7 +44,6 @@ def define_components(m):
         sum(m.BuildAnyPumpedHydro[z, p] for p in m.PERIODS) <= 1
     )
 
-
     # How to run pumped hydro
     m.GeneratePumpedHydro = Var(m.LOAD_ZONES, m.TIMEPOINTS, within=NonNegativeReals)
     m.StorePumpedHydro = Var(m.LOAD_ZONES, m.TIMEPOINTS, within=NonNegativeReals)

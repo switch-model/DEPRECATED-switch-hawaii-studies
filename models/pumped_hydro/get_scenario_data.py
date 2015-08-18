@@ -13,7 +13,7 @@ import scenario_data
 # particular settings chosen for this case
 # (these will be passed as arguments when the queries are run)
 args = dict(
-    time_sample = "rps_test_45",       # could be '2007', '2016test', 'rps_test_45', 'rps' or 'main'
+    time_sample = "rps",       # could be '2007', '2016test', 'rps_test_45', 'rps' or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
     load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion"
     fuel_scen_id = 3,            # 1=low, 2=high, 3=reference

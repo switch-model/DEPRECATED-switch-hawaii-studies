@@ -1,4 +1,6 @@
-+ get a tiny rps dataset that reaches 2045 (rps_tiny)
+! find out about expected retirement for existing HECO plants
+
++ get a tiny rps dataset that reaches 2045 (rps_test_45)
 project +loads, -equipment costs and +fuel costs to 2050
 
 + convert future fuel costs from nominal to real based on inflation used in HECO IRP reports (maybe 2.5%/year according to p. K-97 of http://www.hawaiianelectric.com/vcmcontent/IntegratedResource/IRP/PDF/IRP-2013-App-K-Supply-Side-Resource-Assessment-062813-Filed.pdf)
@@ -33,8 +35,9 @@ project +loads, -equipment costs and +fuel costs to 2050
 
 + check whether projects can be / are rebuilt after they reach their maximum age (i.e., why is wind dropping off in late years?) (forced BuildProj["Oahu_Wind_503_na", 2045] == 117.5 and it rebuilt it, but this raised costs overall)
 
-! create an rps time_sample which has two days in every even numbered month
-- create a mini rps time_sample (rps_mini), which only covers even months and even hours
+create an rps time_sample which has two days in every month
+- create a mini rps time_sample (rps_mini) which has two days in every even numbered month
+- create a sub-mini rps time_sample (rps_mini2), which only covers even months and even hours
 
 run three scenarios:
 1. no rps, no renewables, no ev adoption (use "no_ev" module to get driving cost included), no pumped hydro, no demand response
