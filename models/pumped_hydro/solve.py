@@ -80,13 +80,13 @@ def solve(
     switch_model.dual = Suffix(direction=Suffix.IMPORT)
 
     # force construction of a fixed amount of pumped hydro
-    if ph_mw is not None:
+    if pumped_hydro and ph_mw is not None:
         print "Forcing construction of {m} MW of pumped hydro.".format(m=ph_mw)
         switch_model.Build_Pumped_Hydro_MW = Constraint(switch_model.LOAD_ZONES, rule=lambda m, z:
             m.Pumped_Hydro_Capacity_MW[z, m.PERIODS.last()] == ph_mw
         )
     # force construction of pumped hydro only in a certain period
-    if ph_year is not None:
+    if pumped_hydro and ph_year is not None:
         print "Allowing construction of pumped hydro only in {p}.".format(p=ph_year)
         switch_model.Build_Pumped_Hydro_Year = Constraint(
             switch_model.LOAD_ZONES, switch_model.PERIODS, 
@@ -107,7 +107,15 @@ def solve(
 
     # results.write()
     log("loading solution... "); tic()
-    switch_instance.solutions.load_from(results)
+    # Pyomo changed their interface for loading results somewhere 
+    # between 4.0.x and 4.1.x in a way that was not backwards compatible.
+    # Make the code accept either version
+    if hasattr(switch_instance, 'solutions'):
+        # Works in Pyomo version 4.1.x
+        switch_instance.solutions.load_from(results)
+    else:
+        # Works in Pyomo version 4.0.9682
+        switch_instance.load(results)
     toc()
     
     if results.solver.termination_condition == TerminationCondition.infeasible:
