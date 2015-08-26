@@ -15,9 +15,9 @@ import scenario_data
 args = dict(
     time_sample = "rps",       # could be '2007', '2016test', 'rps_test_45', 'rps' or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
-    load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion"
+    load_scen_id = "flat",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels
     fuel_scen_id = 3,            # 1=low, 2=high, 3=reference
-    ev_scen_id = 2,              # 1=low, 2=high, 3=reference (omitted=none)
+    ev_scen_id = None,              # 1=low, 2=high, 3=reference (omitted or None=none)
     enable_must_run = 0,     # should the must_run flag be converted to set minimum commitment for existing plants?
     # TODO: integrate the connect length into switch financial calculations,
     # rather than assigning a cost per MW-km here.
