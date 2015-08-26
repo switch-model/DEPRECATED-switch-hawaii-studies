@@ -518,3 +518,13 @@ INSERT INTO system_load_scale
             AS f(year)
     WHERE s.year_fore = (SELECT MAX(year_fore) as last_year FROM system_load_scale);
 
+-- create a "flat" load scenario, with 2015 load levels continuing into the future
+DO $$ BEGIN PERFORM drop_temporary_table('t_flat_load'); END $$;
+CREATE TEMPORARY TABLE t_flat_load AS 
+    SELECT * FROM system_load_scale WHERE load_scen_id = 'med';
+UPDATE t_flat_load f
+    SET peak_fore = s.peak_fore, avg_fore = s.avg_fore, scale = s.scale, "offset" = s."offset"
+    FROM system_load_scale s
+    WHERE s.load_scen_id = f.load_scen_id AND s.year_fore = 2015;
+    
+INSERT INTO system_load_scale (load_zone, year_hist, load_scen_id, year_fore, peak_hist, peak_fore, avg_hist, avg)
