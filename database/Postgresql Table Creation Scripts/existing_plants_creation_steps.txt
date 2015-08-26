@@ -799,11 +799,11 @@ heco operated plants:
 ###############################
 update existing_plants_temp
     set max_age = 2023 - build_year
-    where project_id = ('Oahu_Kahe_K1','Oahu_Kahe_K2');
+    where project_id in ('Oahu_Kahe_K1','Oahu_Kahe_K2');
 
 update existing_plants_temp
     set max_age = 2024 - build_year
-    where project_id = ('Oahu_Kahe_K3','Oahu_Kahe_K4');
+    where project_id in ('Oahu_Kahe_K3','Oahu_Kahe_K4');
 
 update existing_plants_temp
     set max_age = 2022 - build_year
@@ -828,13 +828,13 @@ update existing_plants_temp
 ###############################
 IPP operated plants:
 ###############################
-update existing_plants
-    set max_age = 2023 - build_year
-    where project_id = 'Oahu_Kalaeloa_CC1_CC2';
+--update existing_plants
+--    set max_age = 2023 - build_year
+--    where project_id = 'Oahu_Kalaeloa_CC1_CC2';
 
-update existing_plants
-    set max_age = 2022 - build_year
-    where project_id = 'Oahu_AES_GEN1';
+--update existing_plants
+--    set max_age = 2022 - build_year
+--    where project_id = 'Oahu_AES_GEN1';
 
 ###############################
 
@@ -1231,8 +1231,76 @@ Solar 258.5 MW (5 Proposed Projects - 114.3 MW, 4 Permitted Projects - 137.2 MW,
 So how do YOU propose to add the capacity factors for the new projects ? As finding each projects exact location in the grid of potential Central PV sites and then modifying the database to cluster them to form 13 projects of 282.5 MW can be cumbersome and not easy to do. Joshiah was suggesting using NREL'S System Advisor Model (SAM) to get an estimation of capacity factors and power output from potential sites but I haven't used it earlier so don't have much idea about it.  Have you used it earlier ? 
 #############################################################################################
 
+#############################################################################################
+MF added the following code 8/23/15 to handle planned fuel switches
+Note: we don't simply change the fuel type in the existing plants database,
+because then we wouldn't know the current fuel type (in case we want to 
+assume the fuel switch doesn't happen)
 
+# expected changes under the Preferred Plan in 2014 PSIP, http://files.hawaii.gov/puc/3_Dkt%202011-0206%202014-08-26%20HECO%20PSIP%20Report.pdf
 
+Fig ES-5, p. 27; discussion on pp. 67, 133, 309: 
 
+switch Kahe 1 & 2 to cycling mode in 2015
+switch Kahe 3 & 4 to cycling mode in 2016
 
+deactivate Waiau 3-4 in 2017
+deactivate Kahe 5-6 in 2022
+deactivate Kahe 1-2 in 2023
+deactivate Kahe 3-4 in 2024
+deactivate Waiau 5-6 in 2028
+deactivate Waiau 7-8 in 2030
 
+--------
+Fuel Switches (from PSIP pp. L-7 - L-9 and Fig. ES-5)
+
+TODO: eventually get costs for doing the fuel switches, and make the choice within switch
+NOTE: these are just what HECO prefers, but they may not be the best choice; we may need to find the best choice
+
++ switch AES to 50/50 coal/biomass blend in 2022
+
++ switch CIP CT-1 to ULSD in 2018
+
++ switch Waiau 3-8 and Kahe 1-6 to 60/40 LSFO/low-sulfur diesel (0.5% sulfur) by 4/16/2016 for MATS compliance
+
++ switch Waiau 5-8, Kahe 1-6 and Kalaeloa (IPP) to containerized LNG in 2017 (note: Kahe 5-6 will need to switch to LNG or ULSD if it still runs after 2022 (p. 133))
+
++ switch Waiau 9-10 to ULSD in 2017 (based on p. L-9, which disagrees with fig. ES-5)
+
+-- check the project_id for the various projects
+select plant_code, plant_name, generator_id, primemover, aer_fuel_code, peak_mw, project_id from existing_plants;
+
+drop table if exists fuel_switch;
+create table fuel_switch (
+  project_id varchar(50),
+  aer_fuel_code varchar(20),
+  year int
+);
+--starting fuel
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, aer_fuel_code, insvyear
+  from existing_plants;
+--fuel switches
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, 'Biomass-Coal-Blend', 2022
+    from existing_plants
+    where plant_name = 'AES';
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, 'ULSD', 2018
+    from existing_plants
+    where plant_name = 'CIP';
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, 'LSFO-Diesel-Blend', 2016 
+    from existing_plants
+    where (plant_name = 'Kahe' and generator_id between 'K1' and 'K6')
+      or (plant_name = 'Waiau' and generator_id between 'W3' and 'W8');
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, 'LNG', 2017
+    from existing_plants
+    where (plant_name = 'Kahe' and generator_id between 'K1' and 'K6')
+      or (plant_name = 'Waiau' and generator_id between 'W5' and 'W8')
+      or plant_name = 'Kalaeloa';
+insert into fuel_switch (project_id, aer_fuel_code, year)
+  select distinct project_id, 'ULSD', 2017
+    from existing_plants
+    where plant_name = 'Waiau' and generator_id in ('W9', 'W10');
