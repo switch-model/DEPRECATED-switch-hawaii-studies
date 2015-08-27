@@ -158,7 +158,7 @@ def solve(
     create_batch_results_file(switch_instance, tag=tag)
         
     # repeat with a range of DR shares
-    all_dr_shares = [0.30, 0.20, 0.40, 0.10, 0.05, 0.15, 0.25, 0.35, 0.0]
+    all_dr_shares = [0.00, 0.20, 0.40, 0.05, 0.15, 0.25, 0.35, 0.30, 0.10]
     if thread is None:
         dr_shares = all_dr_shares
     else:
@@ -178,7 +178,15 @@ def solve(
 
         # results.write()
         log("loading solution... "); tic()
-        switch_instance.solutions.load_from(results)
+        # Pyomo changed their interface for loading results somewhere 
+        # between 4.0.x and 4.1.x in a way that was not backwards compatible.
+        # Make the code accept either version
+        if hasattr(switch_instance, 'solutions'):
+            # Works in Pyomo version 4.1.x
+            switch_instance.solutions.load_from(results)
+        else:
+            # Works in Pyomo version 4.0.9682
+            switch_instance.load(results)
         toc()
     
         if results.solver.termination_condition == TerminationCondition.infeasible:
