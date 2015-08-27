@@ -425,6 +425,30 @@ insert into study_periods
     where time_sample='rps'
     order by 2;
 
+
+# tiny study for testing iterative approaches
+delete from study_date where time_sample='tiny';
+insert into study_date (time_sample, period, study_date, date)
+    values
+        ('tiny', 2021, 2107, date '2007-07-15'),
+        ('tiny', 2037, 3707, date '2007-07-15');
+update study_date set 
+    ts_num_tps = 8,
+    ts_duration_of_tp = 3,
+    ts_scale_to_period = 365.25*16
+    where time_sample='tiny';
+delete from study_periods where time_sample='tiny';
+insert into study_periods (time_sample, period) 
+    select distinct time_sample, period from study_date where time_sample = 'tiny' order by 1, 2;
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+    select study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time, time_sample
+    from study_date d join system_load l 
+        on d.date=date_trunc('day', l.date_time) and l.load_zone='Oahu'
+    where time_sample='tiny' and cast(extract(hour from date_time) as int) % 3 = 0
+    order by 1, 2;
+
+
 select *, '2007' as time_sample 
     from study_date_main where period in (2015, 2018);
 update study_date set 

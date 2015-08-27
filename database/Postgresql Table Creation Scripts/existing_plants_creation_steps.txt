@@ -798,32 +798,46 @@ which is summarized in the excel file hi_plant_retirement_data.xlsx
 heco operated plants:
 ###############################
 update existing_plants_temp
-    set max_age = 2023 - build_year
+    set max_age = 2023 - insvyear
     where project_id in ('Oahu_Kahe_K1','Oahu_Kahe_K2');
 
 update existing_plants_temp
-    set max_age = 2024 - build_year
+    set max_age = 2024 - insvyear
     where project_id in ('Oahu_Kahe_K3','Oahu_Kahe_K4');
 
 update existing_plants_temp
-    set max_age = 2022 - build_year
+    set max_age = 2022 - insvyear
     where project_id IN ('Oahu_Kahe_K5','Oahu_Kahe_K6');
 
 update existing_plants_temp
-    set max_age = 2030 - build_year
+    set max_age = 2030 - insvyear
     where project_id = 'Oahu_Waiau_W7_W8';
 
 update existing_plants_temp
-    set max_age = 2014 - build_year
+    set max_age = 2014 - insvyear
     where project_id IN ('Oahu_Honolulu_H8','Oahu_Honolulu_H9');
 
 update existing_plants_temp
-    set max_age = 2017 - build_year
+    set max_age = 2017 - insvyear
     where project_id IN ('Oahu_Waiau_W3','Oahu_Waiau_W4');
 
 update existing_plants_temp
-    set max_age = 2028 - build_year
+    set max_age = 2028 - insvyear
     where project_id IN ('Oahu_Waiau_W5','Oahu_Waiau_W6');
+
+-- extend life of other plants
+update existing_plants_temp
+    set max_age = 2060 - insvyear
+    where project_id NOT IN (
+        'Oahu_Kahe_K1','Oahu_Kahe_K2', 'Oahu_Kahe_K3','Oahu_Kahe_K4', 'Oahu_Kahe_K5','Oahu_Kahe_K6',
+        'Oahu_Waiau_W3','Oahu_Waiau_W4', 'Oahu_Waiau_W5','Oahu_Waiau_W6', 'Oahu_Waiau_W7_W8', 
+        'Oahu_Honolulu_H8','Oahu_Honolulu_H9'
+    );
+
+-- check retirement dates:
+select p.project_id, p.insvyear, p.max_age, t.max_age, t.insvyear+t.max_age as retire_year 
+    from existing_plants p join existing_plants_temp t using (project_id);
+
 ###############################
 ###############################
 IPP operated plants:
@@ -837,6 +851,18 @@ IPP operated plants:
 --    where project_id = 'Oahu_AES_GEN1';
 
 ###############################
+
+##### For now, just use the max_age adjustments; we'll think about additional adjustments later...
+update existing_plants p
+    set max_age = t.max_age
+    from existing_plants_temp t
+    where p.project_id = t.project_id;
+update existing_plants_gen_tech g
+    set max_age = p.max_age
+    from existing_plants p
+    where g.technology = p.technology;
+
+
 
 ******************************************
 PAGE 5-18 (PSIP)
