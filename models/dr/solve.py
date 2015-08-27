@@ -41,13 +41,19 @@ opt.options['mipgap'] = 0.001
 # display more information during solve
 opt.options['display'] = 1
 opt.options['bardisplay'] = 1
+opt.options['primalopt'] = ""
+opt.options['advance'] = 2
+#opt.options['threads'] = 1
 
 # define global variables for convenient access in interactive session
 switch_model = None
 switch_instance = None
 results = None
 
-def main()
+# global variable for location of results files
+output_dir = None
+
+def main():
     # only called if solve.py is executed from a command line
     # (not called by 'import solve')
     scenarios=[
@@ -88,16 +94,17 @@ def main()
         print "ERROR:", e
 
 def solve(
-    inputs='inputs', 
+    inputs='inputs', outputs='outputs', 
     rps=True, renewables=True, 
     demand_response=True,
     ev=None, 
     pumped_hydro=False, ph_year=None, ph_mw=None,
-    tag=None
+    tag=None,
+    thread=None, nthreads=3
     ):
     # load and solve the model, using specified configuration
     # NOTE: this version solves repeatedly with different DR targets
-    global switch_model, switch_instance, results
+    global switch_model, switch_instance, results, output_dir
 
     modules = ['switch_mod', 'fuel_cost', 'project.no_commit', 'switch_patch', 'batteries']
     if rps:
@@ -146,17 +153,26 @@ def solve(
     switch_instance = switch_model.load_inputs(inputs_dir=inputs)
     toc()
 
+    output_dir = outputs
     setup_results_dir()
-    create_batch_results_file(tag=tag)
+    create_batch_results_file(switch_instance, tag=tag)
         
     # repeat with a range of DR shares
-    for dr_share in [0.0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35]
+    all_dr_shares = [0.30, 0.20, 0.40, 0.10, 0.05, 0.15, 0.25, 0.35, 0.0]
+    if thread is None:
+        dr_shares = all_dr_shares
+    else:
+        # take every nth element from all_dr_shares, starting with element i, where i=thread (1-based) and n=nthreads
+        dr_shares = [all_dr_shares[x] for x in range(thread-1, len(all_dr_shares), nthreads)]
+        
+    log("dr_shares = " + str(dr_shares) + "\n")
+    for dr_share in dr_shares:
         switch_instance.demand_response_max_share = dr_share
         switch_instance.preprocess()
             
         tic()
         log("solving model with max DR={dr}...\n".format(dr=dr_share))
-        results = opt.solve(switch_instance, keepfiles=False, tee=True, 
+        results = opt.solve(switch_instance, keepfiles=False, tee=True, # options='dualopt', # not sure how to put this in opt.options
             symbolic_solver_labels=True, suffixes=['dual', 'iis'])
         log("Solver finished; "); toc()
 
@@ -186,32 +202,63 @@ def solve(
             switch_instance.BuildPumpedHydroMW.pprint()
 
         append_batch_results(switch_instance, tag=tag)
-        write_results(switch_instance, tag=tag+'dr_share_'+str(dr_share))
+        t = "" if tag is None else str(tag) + "_"
+        write_results(switch_instance, tag=t+'dr_share_'+str(dr_share))
 
 def setup_results_dir():
     # make sure there's a valid output directory
-    output_dir = "outputs"
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)        
     if not os.path.isdir(output_dir):
         raise RuntimeError("Unable to create output directory {dir}.".format(dir=output_dir))
 
-def create_batch_results_file(tag=None):
+def create_batch_results_file(m, tag=None):
+    # create a file to hold batch results, but only if it doesn't already exist
+    # (if it exists, we keep it, so multiple threads can write to it as needed)
+
     # format the tag to append to file names (if any)
     if tag is not None:
         t = "_"+str(tag)
     else:
         t = ""
-    util.create_table(
-        output_file=os.path.join(output_dir, "summary{t}.txt".format(t=t)),
-        headings=("max_demand_response_share", "total_cost"),
-    )
+    output_file = os.path.join(output_dir, "summary{t}.txt".format(t=t))
+    if not os.path.isfile(output_file):
+        util.create_table(
+            output_file=output_file,
+            headings=
+                ("max_demand_response_share", "total_cost", "cost_per_kwh")
+                +tuple('cost_per_kwh_'+str(p) for p in m.PERIODS)
+        )
     
 def append_batch_results(m, tag=None):
+    if tag is not None:
+        t = "_"+str(tag)
+    else:
+        t = ""
     # append results to the batch results file
     util.append_table(m, 
         output_file=os.path.join(output_dir, "summary{t}.txt".format(t=t)), 
-        values=lambda m: (m.max_demand_response_share, m.Minimize_System_Cost)
+        values=lambda m: (
+            m.demand_response_max_share, m.Minimize_System_Cost,
+            # next expression calculates NPV of total cost / NPV of kWh generated
+            m.Minimize_System_Cost
+                / sum(
+                    m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
+                    sum(getattr(m, component)[lz, t] 
+                        for component in ('lz_demand_mw', 'DemandResponse'))
+                    for t in m.TIMEPOINTS for lz in m.LOAD_ZONES
+                )
+        ) + tuple(
+            # next expression calculates NPV of total cost / NPV of kWh generated in each period
+            m.SystemCostPerPeriod[p]
+                / sum(
+                    m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
+                    sum(getattr(m, component)[lz, t] 
+                        for component in ('lz_demand_mw', 'DemandResponse'))
+                    for t in m.PERIOD_TPS[p] for lz in m.LOAD_ZONES
+                )
+            for p in m.PERIODS
+        )
     )
 
 def write_results(m, tag=None):
