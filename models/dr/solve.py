@@ -96,7 +96,7 @@ def main():
 def solve(
     inputs='inputs', outputs='outputs', 
     rps=True, renewables=True, 
-    demand_response=True,
+    demand_response=False,
     ev=None, 
     pumped_hydro=False, ph_year=None, ph_mw=None,
     tag=None,
@@ -113,6 +113,15 @@ def solve(
         modules.append('no_renewables')
     if demand_response:
         modules.append('simple_dr')
+        # repeat with a range of DR shares
+        all_dr_shares = [0.00, 0.20, 0.40, 0.05, 0.15, 0.25, 0.35, 0.30, 0.10]
+        if thread is None:
+            dr_shares = all_dr_shares
+        else:
+            # take every nth element from all_dr_shares, starting with element i, where i=thread (1-based) and n=nthreads
+            dr_shares = [all_dr_shares[x] for x in range(thread-1, len(all_dr_shares), nthreads)]
+    else:   # no_demand_response
+        dr_shares = [0.00]
     if ev is None:
         # not specified, leave out ev's
         pass
@@ -120,7 +129,7 @@ def solve(
         # user asked for ev
         modules.append('ev')
     else:
-        # user asked for no_ev
+        # user asked for no_ev (count transport emissions but don't allow EVs)
         modules.append('no_ev')
     if pumped_hydro:
         modules.append('pumped_hydro')
@@ -157,18 +166,11 @@ def solve(
     setup_results_dir()
     create_batch_results_file(switch_instance, tag=tag)
         
-    # repeat with a range of DR shares
-    all_dr_shares = [0.00, 0.20, 0.40, 0.05, 0.15, 0.25, 0.35, 0.30, 0.10]
-    if thread is None:
-        dr_shares = all_dr_shares
-    else:
-        # take every nth element from all_dr_shares, starting with element i, where i=thread (1-based) and n=nthreads
-        dr_shares = [all_dr_shares[x] for x in range(thread-1, len(all_dr_shares), nthreads)]
-        
     log("dr_shares = " + str(dr_shares) + "\n")
     for dr_share in dr_shares:
-        switch_instance.demand_response_max_share = dr_share
-        switch_instance.preprocess()
+        if demand_response:
+            switch_instance.demand_response_max_share = dr_share
+            switch_instance.preprocess()
             
         tic()
         log("solving model with max DR={dr}...\n".format(dr=dr_share))
@@ -244,26 +246,26 @@ def append_batch_results(m, tag=None):
     else:
         t = ""
     # append results to the batch results file
+    demand_components = [c for c in ('lz_demand_mw', 'DemandResponse') if hasattr(m, c)]
     util.append_table(m, 
         output_file=os.path.join(output_dir, "summary{t}.txt".format(t=t)), 
         values=lambda m: (
-            m.demand_response_max_share, m.Minimize_System_Cost,
+            m.demand_response_max_share if hasattr(m, 'demand_response_max_share') else 0.0,
+            m.Minimize_System_Cost,
             # next expression calculates NPV of total cost / NPV of kWh generated
             m.Minimize_System_Cost
                 / sum(
                     m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
-                    sum(getattr(m, component)[lz, t] 
-                        for component in ('lz_demand_mw', 'DemandResponse'))
-                    for t in m.TIMEPOINTS for lz in m.LOAD_ZONES
+                    sum(getattr(m, c)[lz, t] for c in demand_components for lz in m.LOAD_ZONES)
+                    for t in m.TIMEPOINTS 
                 )
         ) + tuple(
             # next expression calculates NPV of total cost / NPV of kWh generated in each period
             m.SystemCostPerPeriod[p]
                 / sum(
                     m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
-                    sum(getattr(m, component)[lz, t] 
-                        for component in ('lz_demand_mw', 'DemandResponse'))
-                    for t in m.PERIOD_TPS[p] for lz in m.LOAD_ZONES
+                    sum(getattr(m, c)[lz, t] for c in demand_components for lz in m.LOAD_ZONES)
+                    for t in m.PERIOD_TPS[p]
                 )
             for p in m.PERIODS
         )
@@ -299,6 +301,7 @@ def write_results(m, tag=None):
         values=lambda m, z, t: 
             (z, m.tp_timestamp[t]) 
             +tuple(
+                #sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS_BY_FUEL[f])
                 sum(m.DispatchProj_AllTimePoints[p, t] for p in m.PROJECTS_BY_FUEL[f])
                 for f in m.FUELS
             )
