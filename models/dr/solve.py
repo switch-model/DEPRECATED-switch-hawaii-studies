@@ -61,46 +61,46 @@ def main():
     ]
 
     # catch errors so the user can continue with a solved model
-    try:
-        for scenario in scenarios:
-            args=dict() # have to create a new dict, not just assign an empty one, which would get reused
-            for arg in sys.argv[1:] + scenario: # evaluate command line arguments, then scenario arguments
-                if '=' in arg:   # e.g., tag=base
-                    (label, val) = arg.split('=', 1)
-                    for t in [int, float, str]:  # try to convert the value to these types, in order
-                        try:
-                            # convert the value to the specified type
-                            val=t(val)
-                            break
-                        except ValueError:
-                            # ignore value errors, move on to the next
-                            pass
-                    if label=='tag' and 'tag' in args:
-                        # concatenate tags, otherwise override previous values
-                        val = args['tag'] + '_' + val
-                    args[label]=val
-                elif arg.startswith('no_'):     # e.g., no_pumped_hydro
-                    args[arg[3:]] = False
-                else:                           # e.g., ev
-                    args[arg] = True
-            # for each scenario:
-            print 'arguments: {}'.format(args)
-            # if args['tag'] == 'test_base':
-            #     print "skipping base scenario"
-            #     continue
-            solve(**args)
-    except Exception, e:
-        traceback.print_exc()
-        print "ERROR:", e
+    # try:
+    for scenario in scenarios:
+        args=dict() # have to create a new dict, not just assign an empty one, which would get reused
+        for arg in sys.argv[1:] + scenario: # evaluate command line arguments, then scenario arguments
+            if '=' in arg:   # e.g., tag=base
+                (label, val) = arg.split('=', 1)
+                for t in [int, float, str]:  # try to convert the value to these types, in order
+                    try:
+                        # convert the value to the specified type
+                        val=t(val)
+                        break
+                    except ValueError:
+                        # ignore value errors, move on to the next
+                        pass
+                if label=='tag' and 'tag' in args:
+                    # concatenate tags, otherwise override previous values
+                    val = args['tag'] + '_' + val
+                args[label]=val
+            elif arg.startswith('no_'):     # e.g., no_pumped_hydro
+                args[arg[3:]] = False
+            else:                           # e.g., ev
+                args[arg] = True
+        # for each scenario:
+        print 'arguments: {}'.format(args)
+        # if args['tag'] == 'test_base':
+        #     print "skipping base scenario"
+        #     continue
+        solve(**args)
+    # except Exception, e:
+    #     traceback.print_exc()
+    #     print "ERROR:", e
 
 def solve(
     inputs='inputs', outputs='outputs', 
     rps=True, renewables=True, 
-    demand_response=False,
+    demand_response=True,
     ev=None, 
     pumped_hydro=False, ph_year=None, ph_mw=None,
     tag=None,
-    thread=None, nthreads=3
+    thread=1, nthreads=10
     ):
     # load and solve the model, using specified configuration
     # NOTE: this version solves repeatedly with different DR targets
@@ -301,7 +301,7 @@ def write_results(m, tag=None):
         values=lambda m, z, t: 
             (z, m.tp_timestamp[t]) 
             +tuple(
-                sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS_BY_FUEL[f])
+                sum(get(m.DispatchProjByFuel, (p, t, f), 0.0) for p in m.PROJECTS_BY_FUEL[f])
                 for f in m.FUELS
             )
             +tuple(
