@@ -25,7 +25,7 @@ from switch_mod.utilities import define_AbstractModel
 
 add_relative_path('switch-hawaii-core') # common components of switch-hawaii
 import util
-from util import tic, toc, log
+from util import tic, toc, log, get
 
 add_relative_path('.') # components for this particular study
 
@@ -283,7 +283,7 @@ def write_results(m, tag=None):
         output_file=os.path.join(output_dir, "dispatch{t}.txt".format(t=t)), 
         headings=("timepoint_label",)+tuple(m.PROJECTS),
         values=lambda m, t: (m.tp_timestamp[t],) + tuple(
-            m.DispatchProj_AllTimePoints[p, t] 
+            get(m.DispatchProj, (p, t), 0.0)
             for p in m.PROJECTS
         )
     )
@@ -301,17 +301,16 @@ def write_results(m, tag=None):
         values=lambda m, z, t: 
             (z, m.tp_timestamp[t]) 
             +tuple(
-                #sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS_BY_FUEL[f])
-                sum(m.DispatchProj_AllTimePoints[p, t] for p in m.PROJECTS_BY_FUEL[f])
+                sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS_BY_FUEL[f])
                 for f in m.FUELS
             )
             +tuple(
-                sum(m.DispatchProj_AllTimePoints[p, t] for p in m.PROJECTS_BY_NON_FUEL_ENERGY_SOURCE[s])
+                sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS_BY_NON_FUEL_ENERGY_SOURCE[s])
                 for s in m.NON_FUEL_ENERGY_SOURCES
             )
             +tuple(
                 sum(
-                    m.DispatchUpperLimit_AllTimePoints[p, t] - m.DispatchProj_AllTimePoints[p, t] 
+                    get(m.DispatchUpperLimit, (p, t), 0.0) - get(m.DispatchProj, (p, t), 0.0) 
                     for p in m.PROJECTS_BY_NON_FUEL_ENERGY_SOURCE[s]
                 )
                 for s in m.NON_FUEL_ENERGY_SOURCES
