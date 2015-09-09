@@ -1,3 +1,5 @@
+#!/usr/bin/env python 
+
 import sys, os
 path_to_core = os.path.abspath(os.path.join(os.path.dirname(__file__), 'switch-hawaii-core'))
 sys.path.append(path_to_core)
@@ -13,15 +15,19 @@ import scenario_data
 # particular settings chosen for this case
 # (these will be passed as arguments when the queries are run)
 args = dict(
-    time_sample = "tiny",       # could be 'tiny', 'rps', or possibly '2007', '2016test', 'rps_test_45', or 'main'
+    time_sample = "rps_mini",       # could be 'tiny', 'rps', 'rps_mini' or possibly 
+                                # '2007', '2016test', 'rps_test_45', or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
-    load_scen_id = "flat",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels
-    fuel_scen_id = 3,            # 1=low, 2=high, 3=reference
+    load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels
+    fuel_scen_id = 'EIA_ref',      # '1'=low, '2'=high, '3'=reference, 'EIA_ref'=EIA-derived reference level
     ev_scen_id = None,              # 1=low, 2=high, 3=reference (omitted or None=none)
-    enable_must_run = 0,     # should the must_run flag be converted to set minimum commitment for existing plants?
+    enable_must_run = 0,     # should the must_run flag be converted to 
+                             # set minimum commitment for existing plants?
     # TODO: integrate the connect length into switch financial calculations,
     # rather than assigning a cost per MW-km here.
     connect_cost_per_mw_km = 1000,
+    bulk_lng_fixed_cost = 1.75,     # fixed cost per MMBtu/year of capacity developed
+    bulk_lng_limit = 43446735.1,    # limit on bulk LNG capacity (MMBtu/year)
     base_financial_year = 2015,
     interest_rate = 0.06,
     discount_rate = 0.03,
@@ -42,7 +48,7 @@ args.update(
     pumped_hydro_fixed_om_percent=0.015,    # use the low-end O&M, because it always builds the big version
     pumped_hydro_efficiency=0.8,
     pumped_hydro_inflow_mw=10,
-    pumped_hydro_max_capacity_mw=1000,
+    pumped_hydro_max_capacity_mw=200,
 )
 
 if "skip_cf" in sys.argv:

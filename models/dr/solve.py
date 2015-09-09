@@ -1,4 +1,4 @@
-#!/usr/local/bin/python
+#!/usr/bin/env python
 
 import sys, os, time, traceback
 
@@ -33,7 +33,7 @@ add_relative_path('..', 'pumped_hydro') # components reused from the pumped_hydr
 
 opt = SolverFactory("cplex", solver_io="nl")
 # tell cplex to find an irreducible infeasible set (and report it)
-#opt.options['iisfind'] = 1
+opt.options['iisfind'] = 1
 
 # relax the integrality constraints, to allow commitment constraints to match up with 
 # number of units available
@@ -41,7 +41,8 @@ opt.options['mipgap'] = 0.001
 # display more information during solve
 opt.options['display'] = 1
 opt.options['bardisplay'] = 1
-opt.options['primalopt'] = ""
+opt.options['mipdisplay'] = 2
+opt.options['primalopt'] = ""   # this is how you specify single-word arguments
 opt.options['advance'] = 2
 #opt.options['threads'] = 1
 
@@ -57,12 +58,17 @@ def main():
     # only called if solve.py is executed from a command line
     # (not called by 'import solve')
     scenarios=[
-        [], # just run one standard scenario
+        ['rps', 'demand_response', 'pumped_hydro', 'no_wind', 'ph_year=2037', 'ph_mw=200', 'tag=rps_no_wind_ph2037_200'],
+        ['no_rps', 'no_renewables', 'no_demand_response', 'no_pumped_hydro', 'tag=no_renewables'],
+        ['no_rps', 'demand_response', 'pumped_hydro', 'tag=free'],
+        ['rps', 'demand_response', 'pumped_hydro', 'tag=rps'],
+        ['rps', 'demand_response', 'pumped_hydro', 'no_wind', 'tag=rps_no_wind'],
     ]
 
     # catch errors so the user can continue with a solved model
     # try:
     for scenario in scenarios:
+        scenarios_to_do = list()
         args=dict() # have to create a new dict, not just assign an empty one, which would get reused
         for arg in sys.argv[1:] + scenario: # evaluate command line arguments, then scenario arguments
             if '=' in arg:   # e.g., tag=base
@@ -75,46 +81,51 @@ def main():
                     except ValueError:
                         # ignore value errors, move on to the next
                         pass
-                if label=='tag' and 'tag' in args:
+                if label == 'tag' and 'tag' in args:
                     # concatenate tags, otherwise override previous values
                     val = args['tag'] + '_' + val
-                args[label]=val
+                if label == 'scenario':
+                    # they can specify several, but each separately: scenario=a scenario=b
+                    scenarios_to_do.append(val)
+                    continue    # don't pass scenario as an argument to solve()
+                args[label] = val
             elif arg.startswith('no_'):     # e.g., no_pumped_hydro
                 args[arg[3:]] = False
             else:                           # e.g., ev
                 args[arg] = True
-        # for each scenario:
-        print 'arguments: {}'.format(args)
-        # if args['tag'] == 'test_base':
-        #     print "skipping base scenario"
-        #     continue
-        solve(**args)
+        # if they list scenario name(s) on the command line, only run those
+        if len(scenarios_to_do) == 0 or args['tag'] in scenarios_to_do:
+            # for each scenario:
+            print 'arguments: {}'.format(args)
+            solve(**args)
     # except Exception, e:
     #     traceback.print_exc()
     #     print "ERROR:", e
 
 def solve(
     inputs='inputs', outputs='outputs', 
-    rps=True, renewables=True, 
+    rps=True, renewables=True, wind=None,
     demand_response=True,
     ev=None, 
-    pumped_hydro=False, ph_year=None, ph_mw=None,
+    pumped_hydro=True, ph_year=None, ph_mw=None,
     tag=None,
-    thread=1, nthreads=10
+    thread=None, nthreads=3
     ):
     # load and solve the model, using specified configuration
     # NOTE: this version solves repeatedly with different DR targets
     global switch_model, switch_instance, results, output_dir
 
-    modules = ['switch_mod', 'fuel_cost', 'project.no_commit', 'switch_patch', 'batteries']
+    modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 'switch_patch', 'batteries']
     if rps:
         modules.append('rps')
     if not renewables:
         modules.append('no_renewables')
+    elif wind is False:
+        modules.append('no_wind')
     if demand_response:
         modules.append('simple_dr')
         # repeat with a range of DR shares
-        all_dr_shares = [0.00, 0.20, 0.40, 0.05, 0.15, 0.25, 0.35, 0.30, 0.10]
+        all_dr_shares = [0.20]
         if thread is None:
             dr_shares = all_dr_shares
         else:
@@ -122,13 +133,10 @@ def solve(
             dr_shares = [all_dr_shares[x] for x in range(thread-1, len(all_dr_shares), nthreads)]
     else:   # no_demand_response
         dr_shares = [0.00]
-    if ev is None:
-        # not specified, leave out ev's
-        pass
-    elif ev:
+    if ev:
         # user asked for ev
         modules.append('ev')
-    else:
+    if ev is False:
         # user asked for no_ev (count transport emissions but don't allow EVs)
         modules.append('no_ev')
     if pumped_hydro:
@@ -174,7 +182,7 @@ def solve(
             
         tic()
         log("solving model with max DR={dr}...\n".format(dr=dr_share))
-        results = opt.solve(switch_instance, keepfiles=False, tee=True, # options='dualopt', # not sure how to put this in opt.options
+        results = opt.solve(switch_instance, keepfiles=False, tee=True,
             symbolic_solver_labels=True, suffixes=['dual', 'iis'])
         log("Solver finished; "); toc()
 
@@ -330,6 +338,12 @@ def write_results(m, tag=None):
         headings=("period",)+built_proj,
         values=lambda m, pe: (pe,) + tuple(m.ProjCapacity[pr, pe] for pr in built_proj)
     )
+    if hasattr(m, 'RFMSupplyTierActivate'):
+        util.write_table(m, m.RFM_SUPPLY_TIERS,
+            output_file=os.path.join(output_dir, "rfm_activate{t}.txt".format(t=t)), 
+            headings=("market", "period", "tier", "activate"),
+            values=lambda m, r, p, st: (r, p, st, m.RFMSupplyTierActivate[r, p, st])
+        )
     
 
     # import pprint
