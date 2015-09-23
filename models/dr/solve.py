@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys, os, time, traceback
+import sys, os, time, traceback, fcntl
 
 from pyomo.environ import *
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
@@ -95,12 +95,17 @@ def main():
                 args[arg] = True
         # if they list scenario name(s) on the command line, only run those
         if len(scenarios_to_do) == 0 or args['tag'] in scenarios_to_do:
-            # for each scenario:
-            print 'arguments: {}'.format(args)
-            solve(**args)
-    # except Exception, e:
-    #     traceback.print_exc()
-    #     print "ERROR:", e
+            if scenario_already_run(tag):
+                print 'scenario {t} already completed; skipping.'.format(t=tag)
+            else:
+                print 'arguments: {}'.format(args)
+                solve(**args)
+
+
+
+# except Exception, e:
+#     traceback.print_exc()
+#     print "ERROR:", e
 
 def solve(
     inputs='inputs', outputs='outputs', 
@@ -222,6 +227,24 @@ def solve(
         append_batch_results(switch_instance, tag=tag)
         t = "" if tag is None else str(tag) + "_"
         write_results(switch_instance, tag=t+'dr_share_'+str(dr_share))
+
+
+def scenario_already_run(scenario):
+    """Add the specified scenario to the list in completed_scenarios.txt. Return False if it wasn't there already."""
+    with open('completed_scenarios.txt', 'a+') as f:
+        # wait for exclusive access to the list (to avoid writing the same scenario twice in a race condition)
+        fcntl.flock(f, fcntl.LOCK_EX)
+        # file starts with pointer at end; move to start
+        f.seek(0, 0)                    
+        if scenario + '\n' in f:
+            already_run = True
+        else:
+            already_run = False
+            # append name to the list (will always go at end, because file was opened in 'a' mode)
+            f.write(scenario + '\n')
+        fcntl.flock(f, fcntl.LOCK_UN)
+    return already_run
+
 
 def setup_results_dir():
     # make sure there's a valid output directory

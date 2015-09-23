@@ -48,7 +48,11 @@ args.update(
     pumped_hydro_fixed_om_percent=0.015,    # use the low-end O&M, because it always builds the big version
     pumped_hydro_efficiency=0.8,
     pumped_hydro_inflow_mw=10,
-    pumped_hydro_max_capacity_mw=200,
+    pumped_hydro_max_capacity_mw=150,
+)
+
+args.update(
+    rps_targets = {2015: 0.15, 2020: 0.30, 2030: 0.40, 2040: 0.70, 2045: 1.00}
 )
 
 if "skip_cf" in sys.argv:
