@@ -777,26 +777,28 @@ The following parts were added by Paritosh Das, 2015-08-03.
 ###############################
 # create a temporary table (existing_plants_temp) for existing_plants so as to incorporate all the potential changes and also have a working backup.Once you are ok with all the changes, you can rename this temp to existing_plants.
  
-create table existing_plants_temp AS 
+create table existing_plants_backup AS 
 select * from existing_plants;
 
+create table existing_plants_temp AS 
+select * from existing_plants;
 
 #  add column plant_status, indicating the status of all the plants -- proposed, permitted, under construction or built.
 
 alter table existing_plants_temp add column project_status varchar(50);
 
-#update the exisiting projects to status 'built'
+-- update the exisiting projects to status 'built'
 update existing_plants_temp
     set project_status = 'built'
     where project_status IS NULL;
 
 
-# update the maximum age of the existing plants according to the deactivation dates in heco PSIP
-which is summarized in the excel file hi_plant_retirement_data.xlsx
+-- update the maximum age of the existing plants according to the deactivation dates in heco PSIP
+-- which is summarized in the excel file hi_plant_retirement_data.xlsx
 
-###############################
-heco operated plants:
-###############################
+-- ###############################
+-- heco operated plants:
+-- ###############################
 update existing_plants_temp
     set max_age = 2023 - insvyear
     where project_id in ('Oahu_Kahe_K1','Oahu_Kahe_K2');

@@ -1,3 +1,6 @@
+# revised by Matthias 2015-09-08, altering the table structure.
+# note: all of this code should be streamlined and migrated into "import_data.py"
+
 1. The fuel_costs table was created using the script :
 
 CREATE TABLE fuel_costs
@@ -71,10 +74,11 @@ INSERT INTO fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
 
 ##########
 -- fuel_scen_id=3 is our main fuel price scenario, but it's just calculated as the average of
--- HECO's low (fuel_scen_id=1) and high (fuel_scen_id=1) scenarios.
--- Somehow the data was for fuel_scen_id=3 for Biocrude on Hawaii (island) was inserted as Biodiesel,
+-- HECO's low (fuel_scen_id=1) and high (fuel_scen_id=2) scenarios.
+-- Somehow the data for fuel_scen_id=3 for Biocrude on Hawaii (island) was inserted as Biodiesel,
 -- making 2 Biodiesel records and no Biocrude records.
--- Also, it does't make much sense to have fuel scenario 3 equal to the average of 1 and 2 before
+-- Also, it doesn't make much sense to have fuel scenario 3 equal to the 
+-- average of 1 and 2 before
 -- 2034 and then follow the same exponential growth trajectory afterward.
 -- So we delete all the records for fuel_scen_id=3 and reconstruct them.
 
@@ -89,3 +93,12 @@ INSERT INTO fuel_costs (load_zone, year, fuel_type, price_mmbtu, fuel_scen_id)
 
 #####
 
+###### 
+-- change structure to allow for named fuel scenarios instead of just numbers
+-- (e.g., "EIA-base" for baseline forecast derived from EIA)
+-- and to define tiers for the fuel_market module
+alter table fuel_costs 
+    alter column load_zone set data type varchar(40),
+    alter column fuel_type set data type varchar(30),
+    alter column fuel_scen_id set data type varchar(20),
+    add column tier varchar(20);

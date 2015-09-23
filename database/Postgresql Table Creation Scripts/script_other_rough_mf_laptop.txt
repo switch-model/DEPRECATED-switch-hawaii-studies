@@ -437,9 +437,9 @@ TODO: get scale factors for 2009-2011, and use historical scale factors for 2012
 instead of IRP forecasts.
 In the future, it would be easier to tabulate the historical averages and peaks along with
 forecast ones, and then create system_loads_scale with "forecasts" for all years.
-DROP TABLE IF EXISTS t_hist_loads;
+DROP TEMPORARY TABLE IF EXISTS hist_loads;
 -- get one copy of the historical data
-CREATE TEMPORARY TABLE t_hist_loads AS 
+CREATE TEMPORARY TABLE hist_loads AS 
     SELECT load_zone, year_hist as year, peak_hist as peak, avg_hist as avg
     FROM system_load_scale 
     WHERE load_scen_id = 'med' AND year_fore = 2015;
@@ -451,7 +451,7 @@ INSERT INTO system_load_scale
         f.year as year_fore, h.peak as peak_hist, f.peak as peak_fore, 
         h.avg as avg_hist, f.avg as avg_fore,
         (f.peak - f.avg)/(h.peak - h.avg) as scale
-    FROM t_hist_loads h join t_hist_loads f using (load_zone);
+    FROM hist_loads h join hist_loads f using (load_zone);
 UPDATE system_load_scale 
     SET "offset" = (peak_fore - (scale * peak_hist)) WHERE "offset" is null;
 
@@ -523,8 +523,10 @@ DO $$ BEGIN PERFORM drop_temporary_table('t_flat_load'); END $$;
 CREATE TEMPORARY TABLE t_flat_load AS 
     SELECT * FROM system_load_scale WHERE load_scen_id = 'med';
 UPDATE t_flat_load f
-    SET peak_fore = s.peak_fore, avg_fore = s.avg_fore, scale = s.scale, "offset" = s."offset"
+    SET load_scen_id='flat',
+        peak_fore = s.peak_fore, avg_fore = s.avg_fore, scale = s.scale, "offset" = s."offset"
     FROM system_load_scale s
-    WHERE s.load_scen_id = f.load_scen_id AND s.year_fore = 2015;
-    
-INSERT INTO system_load_scale (load_zone, year_hist, load_scen_id, year_fore, peak_hist, peak_fore, avg_hist, avg)
+    WHERE s.load_scen_id=f.load_scen_id AND s.year_fore = 2015
+        AND s.load_zone=f.load_zone AND s.year_hist=f.year_hist;
+-- select * from t_flat_load where load_zone='Oahu'  order by year_hist, year_fore;
+INSERT INTO system_load_scale SELECT * from t_flat_load;

@@ -1,13 +1,21 @@
 /* based on http://www.postgresql.org/docs/9.3/static/xfunc-c.html
 
 compile with these commands:
+Mac:
 cd '/Volumes/Data/DB_Code/WindPower UDF'
 cc -I`pg_config --includedir-server` -c WindPower.c
 cc -bundle -flat_namespace -undefined suppress -o WindPower.so WindPower.o
 
+Linux:
+sudo apt-get install postgresql-server-dev-9.3
+cd ...
+cc -fpic -I`pg_config --includedir-server` -c WindPower.c
+cc -shared -o WindPower.so WindPower.o
+sudo mv WindPower.so /usr/local/lib
+
  then install with this command:
 CREATE FUNCTION WindPower(int, double precision, double precision, double precision) RETURNS double precision
-     AS '/Volumes/Data/DB_Code/WindPower UDF/WindPower', 'WindPower'
+     AS '/usr/local/lib/WindPower', 'WindPower'
      LANGUAGE C STRICT;
 */
 

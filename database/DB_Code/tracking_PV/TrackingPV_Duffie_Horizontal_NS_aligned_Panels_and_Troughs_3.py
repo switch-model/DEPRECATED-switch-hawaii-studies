@@ -11,7 +11,7 @@ f = None
 
 try:
     ################   CHANGE THESE PARAMETERS ONLY   ################
-    con = psycopg2.connect(database='switch', host='localhost', port='5432', user='deepakc_super', password='myPassword')
+    con = psycopg2.connect(database='switch', host='redr.eng.hawaii.edu')
     ################   CHANGE THESE PARAMETERS ONLY   ################
 
     cur = con.cursor()
