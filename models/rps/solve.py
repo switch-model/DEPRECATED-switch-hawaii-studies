@@ -128,6 +128,7 @@ def solve(
     global switch_model, switch_instance, results, output_dir
 
     modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 'switch_patch', 'batteries']
+    modules.append('emission_rules')    # no burning LSFO after 2017 except in cogen plants
     if rps:
         modules.append('rps')
     if not renewables:
@@ -269,7 +270,7 @@ def create_batch_results_file(m, tag=None):
         t = "_"+str(tag)
     else:
         t = ""
-    output_file = os.path.join(output_dir, "summary{t}.txt".format(t=t))
+    output_file = os.path.join(output_dir, "summary{t}.tsv".format(t=t))
     if not os.path.isfile(output_file):
         util.create_table(
             output_file=output_file,
@@ -286,7 +287,7 @@ def append_batch_results(m, tag=None):
     # append results to the batch results file
     demand_components = [c for c in ('lz_demand_mw', 'DemandResponse') if hasattr(m, c)]
     util.append_table(m, 
-        output_file=os.path.join(output_dir, "summary{t}.txt".format(t=t)), 
+        output_file=os.path.join(output_dir, "summary{t}.tsv".format(t=t)), 
         values=lambda m: (
             m.demand_response_max_share if hasattr(m, 'demand_response_max_share') else 0.0,
             m.Minimize_System_Cost,
@@ -318,7 +319,7 @@ def write_results(m, tag=None):
         
     # write out results
     util.write_table(m, m.TIMEPOINTS,
-        output_file=os.path.join(output_dir, "dispatch{t}.txt".format(t=t)), 
+        output_file=os.path.join(output_dir, "dispatch{t}.tsv".format(t=t)), 
         headings=("timepoint_label",)+tuple(m.PROJECTS),
         values=lambda m, t: (m.tp_timestamp[t],) + tuple(
             get(m.DispatchProj, (p, t), 0.0)
@@ -327,7 +328,7 @@ def write_results(m, tag=None):
     )
     util.write_table(
         m, m.LOAD_ZONES, m.TIMEPOINTS, 
-        output_file=os.path.join(output_dir, "energy_sources{t}.txt".format(t=t)), 
+        output_file=os.path.join(output_dir, "energy_sources{t}.tsv".format(t=t)), 
         headings=
             ("load_zone", "timepoint_label")
             +tuple(m.FUELS)
@@ -364,13 +365,13 @@ def write_results(m, tag=None):
         pr for pe in m.PERIODS for pr in m.PROJECTS if value(m.ProjCapacity[pr, pe]) > 0.001
     ))
     util.write_table(m, m.PERIODS,
-        output_file=os.path.join(output_dir, "capacity{t}.txt".format(t=t)), 
+        output_file=os.path.join(output_dir, "capacity{t}.tsv".format(t=t)), 
         headings=("period",)+built_proj,
         values=lambda m, pe: (pe,) + tuple(m.ProjCapacity[pr, pe] for pr in built_proj)
     )
     if hasattr(m, 'RFMSupplyTierActivate'):
         util.write_table(m, m.RFM_SUPPLY_TIERS,
-            output_file=os.path.join(output_dir, "rfm_activate{t}.txt".format(t=t)), 
+            output_file=os.path.join(output_dir, "rfm_activate{t}.tsv".format(t=t)), 
             headings=("market", "period", "tier", "activate"),
             values=lambda m, r, p, st: (r, p, st, m.RFMSupplyTierActivate[r, p, st])
         )
