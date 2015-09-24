@@ -208,6 +208,8 @@ try:
         ALTER TABLE t_cap_factor RENAME TO cap_factor;
     """)
 
+    execute("""UPDATE max_capacity SET technology='DistPV_peak' WHERE technology='DistPV';""")
+
     print "End Time: " + datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y") 
     
 except psycopg2.DatabaseError, e:

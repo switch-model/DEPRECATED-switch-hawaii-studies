@@ -23,6 +23,7 @@ args = dict(
     ev_scen_id = None,              # 1=low, 2=high, 3=reference (omitted or None=none)
     enable_must_run = 0,     # should the must_run flag be converted to 
                              # set minimum commitment for existing plants?
+    exclude_technologies = ('CentralPV', 'DistPV_flat'),     # list of technologies to exclude
     # TODO: integrate the connect length into switch financial calculations,
     # rather than assigning a cost per MW-km here.
     connect_cost_per_mw_km = 1000,
