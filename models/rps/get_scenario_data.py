@@ -1,13 +1,32 @@
 #!/usr/bin/env python 
 
 import sys, os
+from textwrap import dedent
+
 path_to_core = os.path.abspath(os.path.join(os.path.dirname(__file__), 'switch-hawaii-core'))
 sys.path.append(path_to_core)
 
 import scenario_data
 
 ###########################
-# Scenario Definition
+# Scenario Definitions
+
+# definitions of standard scenarios (may also specify inputs_subdir to read in alternative data)
+with open(os.path.join('..', 'scenarios_to_run.txt'), 'w') as f:
+    f.write('\n'.join([
+        '--scenario_name rps',
+        '--scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
+        '--scenario_name free -n rps',
+        '--scenario_name rps_no_wind -n wind',
+        '--scenario_name rps_no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind',
+    ]))
+    # f.write(dedent("""
+    #     --scenario_name rps
+    #     --scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro
+    #     --scenario_name free -n rps
+    #     --scenario_name rps_no_wind -n wind
+    #     --scenario_name rps_no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind
+    # """))
 
 # battery data from Dropbox/kauai/OPL/Storage/power_plan.xlsx
 # and http://www.energystoragenews.com/NGK%20Insulators%20Sodium%20Sulfur%20Batteries%20for%20Large%20Scale%20Grid%20Energy%20Storage.html
@@ -15,7 +34,7 @@ import scenario_data
 # particular settings chosen for this case
 # (these will be passed as arguments when the queries are run)
 args = dict(
-    time_sample = "rps_mini",       # could be 'tiny', 'rps', 'rps_mini' or possibly 
+    time_sample = "tiny",       # could be 'tiny', 'rps', 'rps_mini' or possibly 
                                 # '2007', '2016test', 'rps_test_45', or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
     load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels

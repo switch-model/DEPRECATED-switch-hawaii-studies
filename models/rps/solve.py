@@ -24,7 +24,7 @@ import switch_mod.utilities as utilities
 from switch_mod.utilities import define_AbstractModel
 
 add_relative_path('switch-hawaii-core') # common components of switch-hawaii
-import util
+import util, scenarios
 from util import tic, toc, log, get
 
 add_relative_path('.') # components for this particular study
@@ -58,34 +58,26 @@ def main():
     # only called if solve.py is executed from a command line
     # (not called by 'import solve')
 
-    scenarios_list = util.parse_scenario_list([
-        '--scenario_name rps',
-        '--scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
-        '--scenario_name free -n rps',
-        '--scenario_name rps_no_wind -n wind',
-        '--scenario_name rps_no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind',
-    ])
-    
-    required_scenarios = util.requested_scenarios(scenarios_list)
+    required_scenarios = scenarios.get_required_scenario_names()
 
     if len(required_scenarios) > 0:
-        # user specified specific scenarios to run
+        # user specified some specific scenarios to run
         for s in required_scenarios:
-            # flag that the scenario is running
-            scenario_already_run(s["scenario_name"])    
+            # flag that the scenario is running/completed
+            scenarios.report_completed_scenario(s)
+            # get the scenario definition, including any changes specified on the command line
+            args = scenarios.get_scenario_args(s)
             # solve the model
-            print 'running scenario {s}'.format(s=append_tag(s["scenario_name"], s["tag"]))
-            print 'arguments: {}'.format(s)
-            solve(**s)
+            print 'running scenario {s}'.format(s=append_tag(s, args["tag"]))
+            print 'arguments: {}'.format(args)
+            solve(**args)
     else:
         # they want to run the standard scenarios, possibly with some command-line modifications
-        write_scenarios_file(scenarios_list)
         while True:
-            s = start_next_scenario()
+            s = scenarios.start_next_standard_scenario()
             if s is None:
                 break
             else:
-                s = util.adjust_scenario(s) # apply command-line arguments
                 # solve the model
                 print 'running scenario {s}'.format(s=append_tag(s["scenario_name"], s["tag"]))
                 print 'arguments: {}'.format(s)
@@ -214,49 +206,6 @@ def solve(
 def append_tag(text, tag):
     return text if tag is None or tag == "" else text + "_" + str(tag)
 
-
-def scenario_already_run(scenario):
-    """Add the specified scenario to the list in completed_scenarios.txt. 
-    Return False if it wasn't there already."""
-    with open('completed_scenarios.txt', 'a+') as f:
-        # wait for exclusive access to the list (to avoid writing the same scenario twice in a race condition)
-        fcntl.flock(f, fcntl.LOCK_EX)
-        # file starts with pointer at end; move to start
-        f.seek(0, 0)                    
-        if scenario + '\n' in f:
-            already_run = True
-        else:
-            already_run = False
-            # append name to the list (will always go at end, because file was opened in 'a' mode)
-            f.write(scenario + '\n')
-        fcntl.flock(f, fcntl.LOCK_UN)
-    return already_run
-
-def write_scenarios_file(scenarios_list):
-    with open('scenarios_to_run.txt', 'w') as f:
-        # wait for exclusive access to the file 
-        # (to avoid interleaving scenario definitions in a race condition)
-        fcntl.flock(f, fcntl.LOCK_EX)
-        json.dump(scenarios_list, f)
-        fcntl.flock(f, fcntl.LOCK_UN)        
-    
-def start_next_scenario():
-    # find the next item in the scenarios_list
-    # note: we write and read the list from the disk so that we get a fresher version
-    # if the standard list has been changed (and written by another solve.py)
-    # during a long, multi-threaded solution effort.
-    with open('scenarios_to_run.txt', 'r') as f:
-        # wait for exclusive access to the file 
-        # (to avoid reading while another worker is writing)
-        fcntl.flock(f, fcntl.LOCK_EX)
-        scenarios_list = json.load(f)
-        fcntl.flock(f, fcntl.LOCK_UN)
-    for s in scenarios_list:
-        if scenario_already_run(s['scenario_name']):
-            continue
-        else:
-            return s
-    return None     # no more scenarios to run
 
 
 
