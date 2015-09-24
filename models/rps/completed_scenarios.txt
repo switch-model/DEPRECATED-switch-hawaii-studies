@@ -1,5 +1,0 @@
-rps_no_wind_ph2037_150
-no_renewables
-free
-rps
-rps_no_wind

@@ -10,6 +10,9 @@ outputs/
 inputs_*/
 outputs_*/
 runfile*.txt
+completed_scenarios.txt
+scenarios_to_run.txt
+progress*.txt
 
 # folders cloned from other repositories
 switch/

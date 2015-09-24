@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys, os, time, traceback, fcntl
+import sys, os, time, traceback, fcntl, json
 
 from pyomo.environ import *
 from pyomo.opt import SolverFactory, SolverStatus, TerminationCondition
@@ -57,76 +57,55 @@ output_dir = None
 def main():
     # only called if solve.py is executed from a command line
     # (not called by 'import solve')
-    scenarios=[
-        ['rps', 'demand_response', 'pumped_hydro', 'no_wind', 'ph_year=2037', 'ph_mw=150', 'tag=rps_no_wind_ph2037_150'],
-        ['no_rps', 'no_renewables', 'no_demand_response', 'no_pumped_hydro', 'tag=no_renewables'],
-        ['no_rps', 'demand_response', 'pumped_hydro', 'tag=free'],
-        ['rps', 'demand_response', 'pumped_hydro', 'tag=rps'],
-        ['rps', 'demand_response', 'pumped_hydro', 'no_wind', 'tag=rps_no_wind'],
-    ]
 
-    # catch errors so the user can continue with a solved model
-    # try:
-    for scenario in scenarios:
-        scenarios_to_do = list()
-        args=dict() # have to create a new dict, not just assign an empty one, which would get reused
-        for arg in sys.argv[1:] + scenario: # evaluate command line arguments, then scenario arguments
-            if '=' in arg:   # e.g., tag=base
-                (label, val) = arg.split('=', 1)
-                for t in [int, float, str]:  # try to convert the value to these types, in order
-                    try:
-                        # convert the value to the specified type
-                        val=t(val)
-                        break
-                    except ValueError:
-                        # ignore value errors, move on to the next
-                        pass
-                if label == 'tag' and 'tag' in args:
-                    # concatenate tags, otherwise override previous values
-                    val = args['tag'] + '_' + val
-                if label == 'scenario':
-                    # they can specify several, but each separately: scenario=a scenario=b
-                    scenarios_to_do.append(val)
-                    continue    # don't pass scenario as an argument to solve()
-                args[label] = val
-            elif arg.startswith('no_'):     # e.g., no_pumped_hydro
-                args[arg[3:]] = False
-            else:                           # e.g., ev
-                args[arg] = True
-        # if they list scenario name(s) on the command line, only run those
-        if len(scenarios_to_do) == 0: 
-            if scenario_already_run(args["tag"]):
-                print 'scenario {t} already completed; skipping.'.format(t=args["tag"])
-                continue
-        else:
-            if args['tag'] in scenarios_to_do:
-                # always run the scenario if specified on command line
-                scenario_already_run(args["tag"])      # flag that the scenario is running
+    scenarios_list = util.parse_scenario_list([
+        '--scenario_name rps',
+        '--scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
+        '--scenario_name free -n rps',
+        '--scenario_name rps_no_wind -n wind',
+        '--scenario_name rps_no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind',
+    ])
+    
+    required_scenarios = util.requested_scenarios(scenarios_list)
+
+    if len(required_scenarios) > 0:
+        # user specified specific scenarios to run
+        for s in required_scenarios:
+            # flag that the scenario is running
+            scenario_already_run(s["scenario_name"])    
+            # solve the model
+            print 'running scenario {s}'.format(s=append_tag(s["scenario_name"], s["tag"]))
+            print 'arguments: {}'.format(s)
+            solve(**s)
+    else:
+        # they want to run the standard scenarios, possibly with some command-line modifications
+        write_scenarios_file(scenarios_list)
+        while True:
+            s = start_next_scenario()
+            if s is None:
+                break
             else:
-                # there's a list of scenarios and this isn't in it
-                continue
-        print 'running scenario {t}'.format(t=args["tag"])
-        print 'arguments: {}'.format(args)
-        solve(**args)
-
-
-# except Exception, e:
-#     traceback.print_exc()
-#     print "ERROR:", e
+                s = util.adjust_scenario(s) # apply command-line arguments
+                # solve the model
+                print 'running scenario {s}'.format(s=append_tag(s["scenario_name"], s["tag"]))
+                print 'arguments: {}'.format(s)
+                solve(**s)
 
 def solve(
-    inputs='inputs', outputs='outputs', 
+    inputs_dir='inputs', outputs_dir='outputs', 
     rps=True, renewables=True, wind=None,
     demand_response=True,
     ev=None, 
     pumped_hydro=True, ph_year=None, ph_mw=None,
-    tag=None,
-    thread=None, nthreads=3
+    scenario_name=None, tag=None
     ):
     # load and solve the model, using specified configuration
     # NOTE: this version solves repeatedly with different DR targets
     global switch_model, switch_instance, results, output_dir
 
+    # quick fix to use scenario name and (optional) tag
+    tag = None if scenario_name is None else append_tag(scenario_name, tag)
+    
     modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 'switch_patch', 'batteries']
     modules.append('emission_rules')    # no burning LSFO after 2017 except in cogen plants
     if rps:
@@ -138,12 +117,7 @@ def solve(
     if demand_response:
         modules.append('simple_dr')
         # repeat with a range of DR shares
-        all_dr_shares = [0.20]
-        if thread is None:
-            dr_shares = all_dr_shares
-        else:
-            # take every nth element from all_dr_shares, starting with element i, where i=thread (1-based) and n=nthreads
-            dr_shares = [all_dr_shares[x] for x in range(thread-1, len(all_dr_shares), nthreads)]
+        dr_shares = [0.20]
     else:   # no_demand_response
         dr_shares = [0.00]
     if ev:
@@ -179,11 +153,11 @@ def solve(
 
     toc()   # done defining model
 
-    log("loading model data from {} dir... ".format(inputs)); tic()
-    switch_instance = switch_model.load_inputs(inputs_dir=inputs)
+    log("loading model data from {} dir... ".format(inputs_dir)); tic()
+    switch_instance = switch_model.load_inputs(inputs_dir=inputs_dir)
     toc()
 
-    output_dir = outputs
+    output_dir = outputs_dir    # assign to global variable with slightly different name (ugh)
     setup_results_dir()
     create_batch_results_file(switch_instance, tag=tag)
         
@@ -237,8 +211,13 @@ def solve(
         write_results(switch_instance, tag=t+'dr_share_'+str(dr_share))
 
 
+def append_tag(text, tag):
+    return text if tag is None or tag == "" else text + "_" + str(tag)
+
+
 def scenario_already_run(scenario):
-    """Add the specified scenario to the list in completed_scenarios.txt. Return False if it wasn't there already."""
+    """Add the specified scenario to the list in completed_scenarios.txt. 
+    Return False if it wasn't there already."""
     with open('completed_scenarios.txt', 'a+') as f:
         # wait for exclusive access to the list (to avoid writing the same scenario twice in a race condition)
         fcntl.flock(f, fcntl.LOCK_EX)
@@ -252,6 +231,33 @@ def scenario_already_run(scenario):
             f.write(scenario + '\n')
         fcntl.flock(f, fcntl.LOCK_UN)
     return already_run
+
+def write_scenarios_file(scenarios_list):
+    with open('scenarios_to_run.txt', 'w') as f:
+        # wait for exclusive access to the file 
+        # (to avoid interleaving scenario definitions in a race condition)
+        fcntl.flock(f, fcntl.LOCK_EX)
+        json.dump(scenarios_list, f)
+        fcntl.flock(f, fcntl.LOCK_UN)        
+    
+def start_next_scenario():
+    # find the next item in the scenarios_list
+    # note: we write and read the list from the disk so that we get a fresher version
+    # if the standard list has been changed (and written by another solve.py)
+    # during a long, multi-threaded solution effort.
+    with open('scenarios_to_run.txt', 'r') as f:
+        # wait for exclusive access to the file 
+        # (to avoid reading while another worker is writing)
+        fcntl.flock(f, fcntl.LOCK_EX)
+        scenarios_list = json.load(f)
+        fcntl.flock(f, fcntl.LOCK_UN)
+    for s in scenarios_list:
+        if scenario_already_run(s['scenario_name']):
+            continue
+        else:
+            return s
+    return None     # no more scenarios to run
+
 
 
 def setup_results_dir():
