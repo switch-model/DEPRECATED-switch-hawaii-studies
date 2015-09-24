@@ -766,7 +766,8 @@ update existing_plants_cap_factor c
 select distinct technology, load_zone, site, project_id 
     from existing_plants_cap_factor;
 
-
+# switch H-POWER from 'MLG' to 'MSW'
+UPDATE existing_plants SET aer_fuel_code = 'MSW' WHERE aer_fuel_code = 'MLG' AND plant_code = 10334; 
 
 #############################################################################################
 #############################################################################################
