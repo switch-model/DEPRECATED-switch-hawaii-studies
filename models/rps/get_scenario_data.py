@@ -15,7 +15,7 @@ import scenario_data
 # particular settings chosen for this case
 # (these will be passed as arguments when the queries are run)
 args = dict(
-    time_sample = "tiny",       # could be 'tiny', 'rps', 'rps_mini' or possibly 
+    time_sample = "rps_mini",       # could be 'tiny', 'rps', 'rps_mini' or possibly 
                                 # '2007', '2016test', 'rps_test_45', or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
     load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels

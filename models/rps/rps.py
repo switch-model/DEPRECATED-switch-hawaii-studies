@@ -22,7 +22,7 @@ def define_components(m):
 
     def rps_target_for_period_rule(m, p):
         """find the last target that is in effect before the _end_ of the period"""
-        latest_target = max(y for y in m.RPS_YEARS if y < p + m.period_length_years[p])
+        latest_target = max(y for y in m.RPS_YEARS if y <= m.period_end[p])
         return m.rps_target[latest_target]
     m.rps_target_for_period = Param(m.PERIODS, initialize=rps_target_for_period_rule)
 
