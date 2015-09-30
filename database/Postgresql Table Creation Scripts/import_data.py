@@ -49,7 +49,8 @@ def main():
     # ev_adoption()
     # fuel_costs()
     # energy_source_properties()
-    rps_timeseries()
+    fuel_costs_no_biofuel()
+    # rps_timeseries()
 
 def execute(query, arguments=None):
     args = [dedent(query)]
@@ -223,13 +224,6 @@ def ev_adoption():
 # Oahu fuel price forecasts, derived from EIA
 
 def fuel_costs():
-    # get the forecasts from an Excel workbook 
-    # Based on various sources, cited in the workbook, extended to 2050
-    fuel_forecast = get_table_from_xlsx(
-        "../../../Reference Docs/HECO Plans/HECO fuel cost forecasts.xlsx", 
-        named_range='Adjusted_EIA_Forecast',
-        transpose=True
-    )
 
     # create the fuel_costs table if needed
     execute("""
@@ -238,15 +232,27 @@ def fuel_costs():
             year int,
             fuel_type varchar(30),
             price_mmbtu float,
-            fuel_scen_id varchar(20),
+            fuel_scen_id varchar(40),
             tier varchar(20)
         );
     """)
 
+    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts.xlsx", 'EIA_ref')
+    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_low.xlsx", 'EIA_low')
+    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_high.xlsx", 'EIA_high')
+    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_LNG_pegged_to_oil.xlsx", 'EIA_lng_oil_peg')
+    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_high_LNG_pegged_to_oil.xlsx", 'EIA_high_lng_oil_peg')
+
+def import_fuel_costs(file, fuel_scen_id):
+    
+    # get the forecasts from an Excel workbook 
+    # Based on various sources, cited in the workbook, extended to 2050
+    fuel_forecast = get_table_from_xlsx(file, named_range='Adjusted_EIA_Forecast', transpose=True)
+
     # remove any existing records
     execute("""
-        DELETE FROM fuel_costs WHERE fuel_scen_id='EIA_ref';
-    """)
+        DELETE FROM fuel_costs WHERE fuel_scen_id=%s;
+    """, (fuel_scen_id,))
 
     # take out the list of years, so the dictionary just has one entry for each fuel
     years = fuel_forecast.pop('Year')
@@ -264,12 +270,12 @@ def fuel_costs():
                 years,
                 [fuel]*n_rows,
                 fuel_forecast[f], 
-                ["EIA_ref"]*n_rows,
+                [fuel_scen_id]*n_rows,
                 [tier]*n_rows
             )
         )
 
-    print "Added EIA-derived forecast (fuel_scen_id=EIA_ref) to fuel_costs table."
+    print "Added EIA-derived forecast (fuel_scen_id={}) to fuel_costs table.".format(fuel_scen_id)
 
 #########################
 # Fuel properties, maintained manually in the Excel forecast workbook 
@@ -315,6 +321,19 @@ def energy_source_properties():
     """)
 
     print "Created energy_source_properties table."
+
+def fuel_costs_no_biofuel():
+    """Create no-biofuel fuel cost scenarios"""
+    execute("""
+        DELETE FROM fuel_costs WHERE fuel_scen_id LIKE 'EIA_%_no_biofuel';
+        INSERT INTO fuel_costs
+        SELECT load_zone, year, c.fuel_type, price_mmbtu, 
+            fuel_scen_id || '_no_biofuel' as fuel_scen_id,
+            tier
+        FROM fuel_costs c JOIN energy_source_properties p ON c.fuel_type = p.energy_source
+        WHERE rps_eligible = 0 AND fuel_scen_id LIKE 'EIA_%';
+    """)
+    
 
 if __name__ == "__main__":
     main()

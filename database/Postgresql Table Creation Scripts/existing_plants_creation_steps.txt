@@ -829,6 +829,8 @@ update existing_plants_temp
     where project_id IN ('Oahu_Waiau_W5','Oahu_Waiau_W6');
 
 -- extend life of other plants
+-- TODO: this should be a a more realistic age, e.g., 2020 or maxage, whichever comes later,
+-- with max_age = 25 years for wind/solar, 50 years for fossil
 update existing_plants_temp
     set max_age = 2060 - insvyear
     where project_id NOT IN (

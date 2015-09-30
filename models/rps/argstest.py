@@ -46,6 +46,7 @@ parser.add_argument('-n', action=RemoveModuleAction, dest='exclude_module')
 parser.add_argument('--include', action=AddModuleAction, dest='include_module', nargs='+')
 parser.add_argument('-y', action=AddModuleAction, dest='include_module')
 parser.add_argument(action=AddModuleAction, dest='include_module', nargs='*')
+#parser.add_argument('remainder', nargs=argparse.REMAINDER)
 
 def args_dict(parser, *a):
     """call the parser to get the args, then return them as a dictionary, omitting None's'"""
@@ -94,25 +95,29 @@ def merge_scenarios(*scenarios):
 
 
 def main():
-    scenarios_list = parse_scenario_list([
-        '--scenario_name rps',
-        '--scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
-        '--scenario_name free -n rps',
-        '--scenario_name rps_no_wind -n wind',
-        '--scenario_name rps_no_wind_ph2037_150 -n wind ph_year=2037 ph_mw=150',
-    ])
-        
-    scenarios_to_run = requested_scenarios(scenarios_list)
-    if len(scenarios_to_run) > 0:
-        # user specified specific scenarios to run
-        for s in scenarios_to_run:
-            print "updating completed_scenarios.txt"
-            print "calling solve({d})".format(d=s)
-    else:
-        # they want to run the standard scenarios
-        print "writing modified scenarios to scenarios_to_run<_tag>.txt"
-        print "getting next scenario to run from scenarios_to_run<_tag>.txt and completed_scenarios<_tag>.txt"
-        print "running next scenario"
+    k, u = parser.parse_known_args()
+    print 'known:', k
+    print 'unknown:', u
+    
+    # scenarios_list = parse_scenario_list([
+    #     '--scenario_name rps',
+    #     '--scenario_name no_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
+    #     '--scenario_name free -n rps',
+    #     '--scenario_name rps_no_wind -n wind',
+    #     '--scenario_name rps_no_wind_ph2037_150 -n wind ph_year=2037 ph_mw=150',
+    # ])
+    #
+    # scenarios_to_run = requested_scenarios(scenarios_list)
+    # if len(scenarios_to_run) > 0:
+    #     # user specified specific scenarios to run
+    #     for s in scenarios_to_run:
+    #         print "updating completed_scenarios.txt"
+    #         print "calling solve({d})".format(d=s)
+    # else:
+    #     # they want to run the standard scenarios
+    #     print "writing modified scenarios to scenarios_to_run<_tag>.txt"
+    #     print "getting next scenario to run from scenarios_to_run<_tag>.txt and completed_scenarios<_tag>.txt"
+    #     print "running next scenario"
 
 
 def scenario_already_run(scenario):

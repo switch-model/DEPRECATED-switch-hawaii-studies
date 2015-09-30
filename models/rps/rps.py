@@ -31,30 +31,62 @@ def define_components(m):
     # it also neglects the (small) contribution from net flow of pumped hydro projects.
     # TODO: incorporate pumped hydro into this rule, maybe change the target to refer to 
     # sum(getattr(m, component)[lz, t] for lz in m.LOAD_ZONES) for component in m.LZ_Energy_Components_Produce)
-    m.RPS_Enforce = Constraint(m.PERIODS, rule=lambda m, per:
-        ( # RPS-eligible sources
-            sum(
-                get(m.DispatchProjByFuel, (p, t, f), 0.0) 
-                    for f in m.FUELS if f in m.RPS_ENERGY_SOURCES
-                        for p in m.PROJECTS_BY_FUEL[f]
-                            for t in m.PERIOD_TPS[per]  # could be accelerated a bit if we had m.ACTIVE_PERIODS_FOR_PROJECT[p]
-            )
-            +
-            sum(
-                get(m.DispatchProj, (p, t), 0.0)
-                    for f in m.NON_FUEL_ENERGY_SOURCES if f in m.RPS_ENERGY_SOURCES
-                        for p in m.PROJECTS_BY_NON_FUEL_ENERGY_SOURCE[f]
-                            for t in m.PERIOD_TPS[per]
-            )
-            -
-            # assume DumpPower is curtailed renewable energy
-            sum(m.DumpPower[lz, tp] for lz in m.LOAD_ZONES for tp in m.PERIOD_TPS[per])
+    # TODO: consider day weights in calculation
+
+    # power production that can be counted toward the RPS each period
+    m.RPSEligiblePower = Expression(m.PERIODS, rule=lambda m, per:
+        sum(
+            m.DispatchProjByFuel[p, t, f] 
+                for f in m.FUELS if f in m.RPS_ENERGY_SOURCES
+                    for p in m.PROJECTS_BY_FUEL[f]
+                        # could be accelerated a bit if we had m.ACTIVE_PERIODS_FOR_PROJECT[p]
+                        for t in m.PERIOD_TPS[per]
+                            if (p, t) in m.PROJ_DISPATCH_POINTS
         )
-        >=
-        m.rps_target_for_period[per]
-        # all energy sources
-        * sum(get(m.DispatchProj, (p, t), 0.0) for p in m.PROJECTS for t in m.PERIOD_TPS[per])
+        +
+        sum(
+            m.DispatchProj[p, t]
+                for f in m.NON_FUEL_ENERGY_SOURCES if f in m.RPS_ENERGY_SOURCES
+                    for p in m.PROJECTS_BY_NON_FUEL_ENERGY_SOURCE[f]
+                        for t in m.PERIOD_TPS[per]
+                            if (p, t) in m.PROJ_DISPATCH_POINTS
+        )
+        -
+        # assume DumpPower is curtailed renewable energy
+        sum(m.DumpPower[lz, tp] for lz in m.LOAD_ZONES for tp in m.PERIOD_TPS[per])
     )
+
+    # total power production each period (against which RPS is measured)
+    # (we subtract DumpPower, because that shouldn't have been produced in the first place)
+    m.RPSTotalPower = Expression(m.PERIODS, rule=lambda m, per:
+        sum(
+            m.DispatchProj[p, t] 
+                for p in m.PROJECTS 
+                    for t in m.PERIOD_TPS[per] 
+                        if (p, t) in m.PROJ_DISPATCH_POINTS
+        )
+        - sum(m.DumpPower[lz, tp] for lz in m.LOAD_ZONES for tp in m.PERIOD_TPS[per])
+    )
+    
+    m.RPS_Enforce = Constraint(m.PERIODS, rule=lambda m, per:
+        m.RPSEligiblePower[per] >= m.rps_target_for_period[per] * m.RPSTotalPower[per]
+    )
+
+    print "2% limit on biofuels in effect."
+    # Don't allow biofuels to provide more than 2% of the RPS energy
+    m.RPS_Fuel_Cap = Constraint(m.PERIODS, rule = lambda m, per:
+        sum(
+            m.DispatchProjByFuel[p, t, f] 
+                for f in m.FUELS if f in m.RPS_ENERGY_SOURCES
+                    for p in m.PROJECTS_BY_FUEL[f]
+                        # could be accelerated a bit if we had m.ACTIVE_PERIODS_FOR_PROJECT[p]
+                        for t in m.PERIOD_TPS[per]
+                            if (p, t) in m.PROJ_DISPATCH_POINTS
+        )
+        <= 0.02 * m.rps_target_for_period[per] * m.RPSTotalPower[per]
+    )
+
+
 
 def load_inputs(m, switch_data, inputs_dir):
     switch_data.load_aug(

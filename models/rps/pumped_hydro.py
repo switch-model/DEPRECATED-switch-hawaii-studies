@@ -24,7 +24,10 @@ def define_components(m):
     m.pumped_hydro_inflow_mw = Param()
     
     # maximum size of pumped hydro project
-    m.pumped_hydro_max_capacity_mw = Param(default=200)
+    m.pumped_hydro_max_capacity_mw = Param(default=150)
+    
+    # maximum number of pumped hydro projects to build
+    m.pumped_hydro_max_build_count = Param(default=1)
 
     # How much pumped hydro to build
     m.BuildPumpedHydroMW = Var(m.LOAD_ZONES, m.PERIODS, within=NonNegativeReals)
@@ -33,15 +36,16 @@ def define_components(m):
     )
 
     # constraints on construction of pumped hydro
+    # note: Binary constraint ensures projects are built once, not incrementally
     m.BuildAnyPumpedHydro = Var(m.LOAD_ZONES, m.PERIODS, within=Binary)
     # force the build flag on for the year(s) when pumped hydro is built, 
     # and cap the build at the max allowed capacity
     m.Pumped_Hydro_Max_Build = Constraint(m.LOAD_ZONES, m.PERIODS, rule=lambda m, z, p:
         m.BuildPumpedHydroMW[z, p] <= m.BuildAnyPumpedHydro[z, p] * m.pumped_hydro_max_capacity_mw
     )
-    # only build pumped hydro in one period (can't add incrementally)
-    m.Pumped_Hydro_Only_Build_Once = Constraint(m.LOAD_ZONES, rule=lambda m, z:
-        sum(m.BuildAnyPumpedHydro[z, p] for p in m.PERIODS) <= 1
+    # only build a limited number of pumped hydro projects (usually 1)
+    m.Pumped_Hydro_Max_Project_Count = Constraint(m.LOAD_ZONES, rule=lambda m, z:
+        sum(m.BuildAnyPumpedHydro[z, p] for p in m.PERIODS) <= m.pumped_hydro_max_build_count
     )
 
     # How to run pumped hydro

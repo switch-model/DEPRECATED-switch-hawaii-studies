@@ -509,6 +509,80 @@ insert into study_periods
     where time_sample='rps_mini'
     order by 2;
 
+-- faster RPS (5-year periods starting in 2020)
+
+delete from study_date where time_sample='rps_fast';
+insert into study_date (period,  study_date, month_of_year, date, hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
+  select 2020 + 5 * cast((period-2015)/3.0 as int) as period, 
+    study_date,
+    month_of_year, date, 5.0*hours_in_sample/3.0 as hours_in_sample, 
+    'rps_fast' as time_sample, ts_num_tps, 
+    ts_duration_of_tp, 5.0*ts_scale_to_period/3.0 as ts_scale_to_period
+  from study_date where time_sample = 'main';
+-- note: this comes after, so it can use the new value of period.
+-- also note: it has to be run twice because it can create duplicate keys otherwise
+update study_date 
+    set study_date=(-1)*(mod(period, 100)*1e7+mod(study_date,1e7))
+    where time_sample = 'rps_fast';
+update study_date 
+    set study_date=(-1)*study_date 
+    where time_sample = 'rps_fast' and study_date < 0;
+
+delete from study_hour where time_sample='rps_fast';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+  select study_date, study_hour, hour_of_day, date_time, 
+    'rps_fast' as time_sample
+  from study_hour where time_sample = 'main'
+  order by 1, 2;
+update study_hour 
+  set study_date = (20+(trunc(study_date/1e7)-15)*5.0/3.0)*1e7+mod(study_date,1e7),
+    study_hour = (20+(trunc(study_hour/1e8)-15)*5.0/3.0)*1e8+mod(study_hour,1e8)
+  where time_sample = 'rps_fast';
+
+delete from study_periods where time_sample='rps_fast';
+insert into study_periods
+    select distinct time_sample, period from study_date
+    where time_sample='rps_fast'
+    order by 2;
+
+-- mini version of faster RPS
+
+drop table if exists tdoublemonths;
+create temporary table tdoublemonths
+    (month_of_year smallint primary key, days_in_month smallint);
+insert into tdoublemonths values 
+  (1, 59), (2, 59), (3, 61), (4, 61), (5, 61), (6, 61),
+  (7, 62), (8, 62), (9, 61), (10, 61), (11, 61), (12, 61);
+\set start_year 2020
+\set years_per_period 5
+
+delete from study_date where time_sample='rps_fast_mini';
+insert into study_date 
+    (period, study_date, month_of_year, date, 
+    hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
+    select period, study_date, d.month_of_year, date,
+        0.0 as hours_in_sample, 
+        'rps_fast_mini' as time_sample,
+        12 as ts_num_tps, 2.0 as ts_duration_of_tp,
+        case when ts_scale_to_period < 100 then 2*:years_per_period 
+            else (days_in_month-2)*:years_per_period end as ts_scale_to_period
+    from study_date d join tdoublemonths m using (month_of_year)
+    where time_sample = 'rps_fast' and mod(month_of_year, 2)=0
+    order by 1, 3, 5 desc, 4;
+
+delete from study_hour where time_sample='rps_fast_mini';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+  select h.study_date, study_hour, hour_of_day, date_time, 
+    'rps_fast_mini' as time_sample
+  from study_hour h join study_date d on (d.time_sample='rps_fast_mini' and d.study_date=h.study_date)
+  where h.time_sample = 'rps_fast' and mod(hour_of_day, 2)=0 
+  order by period, month_of_year, hours_in_sample desc, hour_of_day;
+
+delete from study_periods where time_sample='rps_fast_mini';
+insert into study_periods
+    select distinct time_sample, period from study_date
+    where time_sample='rps_fast_mini'
+    order by 2;
 
 
 -- tiny study for testing iterative approaches

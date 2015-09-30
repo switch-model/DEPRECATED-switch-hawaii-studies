@@ -426,6 +426,47 @@ update generator_costs set capital_cost_per_kw = 4000
 where technology = 'DistPV'
 
 ***************************************************************************************
+------------------------------------------------
+-- Add by Matthias Fripp 2015-09-27
+-- generator_costs incorrectly uses data from a LM6000 PG in combined cycle mode (HECO IRP App. K table L-6c/L-7c)
+-- as the parameters for a LM6000 PG used in simple-cycle mode (which should be HECO IRP App. K table L-2).
+-- While we're at it, we eliminate the distinction between LNG and diesel plants (since the current version
+-- of SWITCH-Hawaii allows fuel switching to any higher grade.
+-- NOTE: the IRP quotes different costs for plants running on LNG or biodiesel. But we use a single plant
+-- technology for both. If we use the higher biodiesel costs, that will be slightly prejudicial against
+-- a LNG-heavy solution. But if we use the lower LNG costs, it will make biodiesel look slightly cheaper
+-- than it really is. So we split the difference and call it a Diesel plant.
+-- NOTE: There is no UIF in App. K for LM6000 running as CT on LNG (L-2 uses biodiesel). However, boxes at the
+-- bottom of L-7c quote O&M for the plant in LNG mode.
+
+-- TODO: should capital costs and fixed O&M be based on plant gross rating rather than net? (currently using net)
+-- TODO: integrate this with other code to import the HECO IRP generator parameters.
+
+update generator_costs set 
+  technology = 'CCCT',
+  capital_cost_per_kw = (3627+3393)/2,
+  connect_cost_per_kw_generic = (136+139)/2,
+  fixed_o_m = (63.51+64.04)/2,
+  variable_o_m = (0.0126+0.00819)/2,
+  heat_rate = (7630+7657)/2,
+  fuel = 'Diesel'
+  where technology = 'CCCT_LNG';
+delete from generator_costs where technology = 'CCCT_Biodiesel';
+
+update generator_costs set 
+  technology = 'SCCT',
+  capital_cost_per_kw = 2924-124,
+  connect_cost_per_kw_generic = 124,
+  fixed_o_m = (22.02+22.01)/2,
+  variable_o_m = (14.38+10.06)/1000/2,
+  heat_rate = 10112,
+  fuel = 'Diesel'
+  where technology = 'SCCT_LNG';
+delete from generator_costs where technology = 'SCCT_Biodiesel';
+
+------------------------------------------------
+
+
 Added by Matthias Fripp 2015-06-18:
 (this should be integrated into earlier code in the future)
 
