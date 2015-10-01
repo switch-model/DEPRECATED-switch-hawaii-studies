@@ -91,20 +91,20 @@ args.update(
 )
 
 args.update(
-    # pumped_hydro_headers=[
-    #     'ph_project_id', 'ph_load_zone', 'ph_capital_cost_per_mw', 'ph_project_life', 'ph_fixed_om_percent',
-    #     'ph_efficiency', 'ph_inflow_mw', 'ph_max_capacity_mw']
-    # pumped_hydro_projects=[
-    #     ['Lake Wilson', 'Oahu', 2800*1000+35e6/150, 50, 0.015, 0.77, 10, 150],
-    # ]
-    pumped_hydro_project_id='Lake Wilson',
-    pumped_hydro_capital_cost_per_mw=2800*1000+35e6/150,
-    pumped_hydro_project_life=50,
-    pumped_hydro_fixed_om_percent=0.015,    # use the low-end O&M, because it always builds the big version
-    pumped_hydro_efficiency=0.77,
-    pumped_hydro_inflow_mw=10,
-    pumped_hydro_max_capacity_mw=150,
-    pumped_hydro_max_build_count=1
+    pumped_hydro_headers=[
+        'ph_project_id', 'ph_load_zone', 'ph_capital_cost_per_mw', 'ph_project_life', 'ph_fixed_om_percent',
+        'ph_efficiency', 'ph_inflow_mw', 'ph_max_capacity_mw'],
+    pumped_hydro_projects=[
+        ['Lake_Wilson', 'Oahu', 2800*1000+35e6/150, 50, 0.015, 0.77, 10, 150],
+    ]
+    # pumped_hydro_project_id='Lake Wilson',
+    # pumped_hydro_capital_cost_per_mw=2800*1000+35e6/150,
+    # pumped_hydro_project_life=50,
+    # pumped_hydro_fixed_om_percent=0.015,    # use the low-end O&M, because it always builds the big version
+    # pumped_hydro_efficiency=0.77,
+    # pumped_hydro_inflow_mw=10,
+    # pumped_hydro_max_capacity_mw=150,
+    # pumped_hydro_max_build_count=1
 )
 
 args.update(
@@ -141,11 +141,11 @@ alt_args = [
         time_sample = "rps_fast_mini",
         ev_scen_id = 2, # high adoption (not used for now)
         fuel_scen_id = 'EIA_ref',  # 'EIA_ref_no_biofuel' eliminates all biofuel, but rps.py can restrict it more precisely
-        # pumped_hydro_projects=[
-        #     args["pumped_hydro_projects"][0],   # standard Lake Wilson project
-        #     ['Project 2 (1.2x)', 'Oahu', 1.2*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
-        #     ['Project 3 (1.3x)', 'Oahu', 1.3*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
-        # ]
+        pumped_hydro_projects=[
+            args["pumped_hydro_projects"][0],   # standard Lake Wilson project
+            ['Project_2_(1.2x)', 'Oahu', 1.2*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
+            ['Project_3_(1.3x)', 'Oahu', 1.3*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
+        ]
     ),
 ]
 

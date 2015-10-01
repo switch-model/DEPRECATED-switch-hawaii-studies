@@ -31,7 +31,7 @@ from scenarios import parser
 
 add_relative_path('.') # components for this particular study
 
-add_relative_path('..', 'pumped_hydro') # components reused from the pumped_hydro study
+# add_relative_path('..', 'pumped_hydro') # components reused from the pumped_hydro study
 
 opt = SolverFactory("cplex", solver_io="nl")
 # tell cplex to find an irreducible infeasible set (and report it)
@@ -150,9 +150,9 @@ def solve(
     if ph_year is not None:
         print "Allowing construction of pumped hydro only in {p}.".format(p=ph_year)
         switch_model.Build_Pumped_Hydro_Year = Constraint(
-            switch_model.LOAD_ZONES, switch_model.PERIODS, 
-            rule=lambda m, z, p:
-                m.BuildPumpedHydroMW[z, p] == 0 if p != ph_year else Constraint.Skip
+            switch_model.PH_PROJECTS, switch_model.PERIODS, 
+            rule=lambda m, pr, pe:
+                m.BuildPumpedHydroMW[pr, pe] == 0 if pe != ph_year else Constraint.Skip
         )
 
     toc()   # done defining model
