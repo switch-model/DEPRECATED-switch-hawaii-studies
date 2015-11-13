@@ -63,6 +63,7 @@ def main():
     parser.add_argument('--tag', type=str)
     parser.add_argument('--ph_year', type=int)
     parser.add_argument('--ph_mw', type=float)
+    parser.add_argument('--biofuel_limit', type=float)
     parser.add_argument('--dr_shares', nargs='+', type=float)
     
     cmd_line_args = scenarios.cmd_line_args()
@@ -97,10 +98,11 @@ def main():
 def solve(
     inputs_dir='inputs', inputs_subdir='', outputs_dir='outputs', 
     rps=True, renewables=True, wind=None, central_pv=None,
-    demand_response=True, dr_shares=[0.2],
-    ev=None, 
+    demand_response=True, dr_shares=[0.3],
+    ev=True, 
     pumped_hydro=True, ph_year=None, ph_mw=None,
     fed_subsidies=False,
+    biofuel_limit=0.05,
     scenario_name=None, tag=None
     ):
     # load and solve the model, using specified configuration
@@ -155,6 +157,30 @@ def solve(
                 m.BuildPumpedHydroMW[pr, pe] == 0 if pe != ph_year else Constraint.Skip
         )
 
+    if biofuel_limit is not None:
+        print "Limiting (bio)fuels to {l}% of electricity production.".format(l=biofuel_limit*100.0)
+        switch_model.rps_fuel_limit = biofuel_limit
+
+    # add an alternative objective function that smoothes out various non-cost variables
+    def Smooth_Free_Variables_obj_rule(m):
+        # minimize production (i.e., maximize curtailment / minimize losses)
+        obj = sum(
+            getattr(m, component)[lz, t] 
+                for lz in m.LOAD_ZONES 
+                    for t in m.TIMEPOINTS 
+                        for component in m.LZ_Energy_Components_Produce)
+        # also minimize the magnitude of demand adjustments
+        if hasattr(m, "DemandResponse"):
+            print "Will smoothe DemandResponse."
+            obj = obj + sum(m.DemandResponse[z, t]*m.DemandResponse[z, t] for z in m.LOAD_ZONES for t in m.TIMEPOINTS)
+        # also minimize the magnitude of EV charging
+        if hasattr(m, "ChargeEVs"):
+            print "Will smoothe EV charging."
+            obj = obj + sum(m.ChargeEVs[z, t]*m.ChargeEVs[z, t] for z in m.LOAD_ZONES for t in m.TIMEPOINTS)
+        return obj
+        
+    switch_model.Smooth_Free_Variables = Objective(rule=Smooth_Free_Variables_obj_rule)
+    
     toc()   # done defining model
 
     log("loading model data from {} dir... ".format(inputs_dir)); tic()
@@ -170,6 +196,9 @@ def solve(
         switch_instance.RPS_Enforce.deactivate()
         switch_instance.preprocess()
 
+    # investigate the cost_components_annual elements
+    import pdb; pdb.set_trace()
+
     output_dir = outputs_dir    # assign to global variable with slightly different name (ugh)
     setup_results_dir()
     create_batch_results_file(switch_instance, scenario=tag)
@@ -179,26 +208,16 @@ def solve(
         if demand_response:
             switch_instance.demand_response_max_share = dr_share
             switch_instance.preprocess()
-            
-        tic()
-        log("solving model with max DR={dr}...\n".format(dr=dr_share))
-        results = opt.solve(switch_instance, keepfiles=False, tee=True,
-            symbolic_solver_labels=True, suffixes=['dual', 'iis'])
+    
+        log("solving model with max DR={dr}...\n".format(dr=dr_share)); tic()
+
+        # make sure the minimum-cost objective is in effect
+        switch_instance.Smooth_Free_Variables.deactivate()
+        switch_instance.Minimize_System_Cost.activate()
+        results = _solve(switch_instance)
+
         log("Solver finished; "); toc()
 
-        # results.write()
-        log("loading solution... "); tic()
-        # Pyomo changed their interface for loading results somewhere 
-        # between 4.0.x and 4.1.x in a way that was not backwards compatible.
-        # Make the code accept either version
-        if hasattr(switch_instance, 'solutions'):
-            # Works in Pyomo version 4.1.x
-            switch_instance.solutions.load_from(results)
-        else:
-            # Works in Pyomo version 4.0.9682
-            switch_instance.load(results)
-        toc()
-    
         if results.solver.termination_condition == TerminationCondition.infeasible:
             print "Model was infeasible; Irreducible Infeasible Set (IIS) returned by solver:"
             print "\n".join(c.cname() for c in switch_instance.iis)
@@ -206,6 +225,23 @@ def solve(
                 print "Unsolved model is available as switch_instance."
             raise RuntimeError("Infeasible model")
 
+        # Freeze all direct-cost variables, and then solve the model against a smoothing objective instead of a cost objective.
+        old_duals = [
+            (z, t, switch_instance.dual[switch_instance.Energy_Balance[z, t]]) 
+                for z in switch_instance.LOAD_ZONES
+                    for t in switch_instance.TIMEPOINTS]
+        fix_obj_expression(switch_instance.Minimize_System_Cost)
+        switch_instance.Minimize_System_Cost.deactivate()
+        switch_instance.Smooth_Free_Variables.activate()
+        switch_instance.preprocess()
+        log("smoothing free variables...\n"); tic()
+        results = _solve(switch_instance)    
+        # restore hourly duals from the original solution
+        for (z, t, d) in old_duals:
+            switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
+        # unfix the variables
+        fix_obj_expression(switch_instance.Minimize_System_Cost, False)
+        log("finished smoothing free variables; "); toc()
 
         if util.interactive_session:
             print "Model solved successfully."
@@ -216,8 +252,8 @@ def solve(
         print "======================================================="
         print "Total cost: ${v:,.0f}".format(v=value(switch_instance.Minimize_System_Cost))
     
-        if pumped_hydro:
-            switch_instance.BuildPumpedHydroMW.pprint()
+        # if pumped_hydro:
+        #     switch_instance.BuildPumpedHydroMW.pprint()
 
         append_batch_results(switch_instance, scenario=tag)
         
@@ -227,13 +263,58 @@ def solve(
             t = tag
         write_results(switch_instance, tag=t)
 
+        # take a look at the biofuel limit
+        #import pdb; pdb.set_trace()
+
 
 def append_tag(text, tag):
     return text if tag is None or tag == "" else text + "_" + str(tag)
 
+def _solve(m):
+    """Solve instance of switch model, using the specified objective, then load the results"""
+    results = opt.solve(m, keepfiles=False, tee=True,
+        symbolic_solver_labels=True, suffixes=['dual', 'iis'])
+
+    # results.write()
+    log("loading solution... "); tic()
+    # Pyomo changed their interface for loading results somewhere 
+    # between 4.0.x and 4.1.x in a way that was not backwards compatible.
+    # Make the code accept either version
+    if hasattr(m, 'solutions'):
+        # Works in Pyomo version 4.1.x
+        m.solutions.load_from(results)
+    else:
+        # Works in Pyomo version 4.0.9682
+        m.load(results)
+    toc()
+    
+    return results
+    
 
 
-
+def fix_obj_expression(e, status=True):
+    """Recursively fix all variables included in an objective expression."""
+    try:
+        if hasattr(e, 'fixed'):
+            e.fixed = status      # see p. 171 of the Pyomo book
+        elif hasattr(e, '_numerator'):
+            for e2 in e._numerator:
+                fix_obj_expression(e2)
+            for e2 in e._denominator:
+                fix_obj_expression(e2)
+        elif hasattr(e, '_args'):
+            for e2 in e._args:
+                fix_obj_expression(e2)
+        elif hasattr(e, 'expr'):
+            fix_obj_expression(e.expr)
+        elif hasattr(e, 'is_constant') and e.is_constant():
+            pass    # numeric constant
+        else:
+            raise ValueError('Expression {e} does not have an expr, fixed or _args property, so it cannot be fixed.'.format(e=e))
+    except:
+        import pdb
+        pdb.set_trace()
+        
 def setup_results_dir():
     # make sure there's a valid output directory
     if not os.path.exists(output_dir):

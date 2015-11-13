@@ -12,32 +12,49 @@ import scenario_data, scenarios
 # Scenario Definitions
 
 # definitions of standard scenarios (may also specify inputs_subdir to read in alternative data)
+# TODO: find a way to define the base scenario here, then apply the others as changes to it
+# Maybe allow each to start with --inherit_scenario <parent>? (to one level) 
+# (--scenario does this already)
 scenario_list = [
-    '--scenario_name rps_base',
-    '--scenario_name rps_low_oil_price --inputs_subdir low_oil_price',
-    '--scenario_name rps_high_oil_price --inputs_subdir high_oil_price',
-    '--scenario_name rps_lng_oil_peg --inputs_subdir lng_oil_peg',
-    '--scenario_name rps_high_oil_and_lng_price --inputs_subdir high_lng_oil_peg',
+    '--scenario_name base',
 
-    '--scenario_name rps_fast --inputs_subdir rps_fast --dr_shares 0.3', #' -y ev',
-    '--scenario_name rps_2030 --inputs_subdir rps_2030 --dr_shares 0.3', #' -y ev',
+    '--scenario_name 2045 --inputs_subdir rps_2045',
 
-    '--scenario_name x_base -n rps -n renewables -n demand_response -n pumped_hydro',
-    '--scenario_name x_low_oil_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir low_oil_price',
-    '--scenario_name x_high_oil_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir high_oil_price',
-    '--scenario_name x_lng_oil_peg -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir lng_oil_peg',
-    '--scenario_name x_high_oil_and_lng_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir high_lng_oil_peg',
+    '--scenario_name 2_bio --biofuel_limit 0.02',
+    '--scenario_name 10_bio --biofuel_limit 0.10',
+    '--scenario_name 100_bio --biofuel_limit 1.00',
 
-    '--scenario_name rps_re_cost_trend --inputs_subdir re_cost_trend',
-    '--scenario_name rps_no_wind -n wind',
-    '--scenario_name rps_no_wind_no_central_pv -n wind -n central_pv',
-    '--scenario_name rps_no_ph -n pumped_hydro',
-    '--scenario_name rps_triple_ph --inputs_subdir triple_ph',
-    '--scenario_name rps_fed_subsidies -y fed_subsidies',
-    '--scenario_name rps_no_dr --dr_shares 0.0',
-    '--scenario_name rps_more_dr --dr_shares 0.4',
-    '--scenario_name rps_re_cost_trend_more_dr --dr_shares 0.4 --inputs_subdir re_cost_trend',
-    # '--scenario_name rps_no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind',
+    '--scenario_name 0_dr --dr_shares 0.0',
+    '--scenario_name 10_dr --dr_shares 0.1',
+    '--scenario_name 20_dr --dr_shares 0.2',
+    '--scenario_name 40_dr --dr_shares 0.4',
+
+    '--scenario_name re_cost_trend --inputs_subdir re_cost_trend',
+    '--scenario_name re_cost_trend_40_dr --dr_shares 0.4 --inputs_subdir re_cost_trend',
+
+    '--scenario_name no_wind -n wind',
+    '--scenario_name no_wind_no_central_pv -n wind -n central_pv',
+    '--scenario_name no_central_pv -n central_pv',
+
+    '--scenario_name no_ph -n pumped_hydro',
+    '--scenario_name triple_ph --inputs_subdir triple_ph',
+
+    '--scenario_name no_new_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
+
+    '--scenario_name low_oil_price --inputs_subdir low_oil_price',
+    '--scenario_name high_oil_price --inputs_subdir high_oil_price',
+    '--scenario_name lng_oil_peg --inputs_subdir lng_oil_peg',
+    '--scenario_name high_oil_and_lng_price --inputs_subdir high_lng_oil_peg',
+
+    '--scenario_name fed_subsidies -y fed_subsidies',
+
+
+    # '--scenario_name x_low_oil_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir low_oil_price',
+    # '--scenario_name x_high_oil_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir high_oil_price',
+    # '--scenario_name x_lng_oil_peg -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir lng_oil_peg',
+    # '--scenario_name x_high_oil_and_lng_price -n rps -n renewables -n demand_response -n pumped_hydro --inputs_subdir high_lng_oil_peg',
+
+    # '--scenario_name no_wind_ph2037_150 --ph_year=2037 --ph_mw=150 -n wind',
 ]
 
 with open('scenarios_to_run.txt', 'w') as f:
@@ -56,12 +73,12 @@ args = dict(
     inputs_dir = cmd_line_args.get('inputs_dir', 'inputs'),     # directory to store data in
     skip_cf = cmd_line_args['skip_cf'],     # skip writing capacity factors file if specified (for speed)
     
-    time_sample = cmd_line_args.get('time_sample', "rps_mini"),       # could be 'tiny', 'rps', 'rps_mini' or possibly 
+    time_sample = cmd_line_args.get('time_sample', "rps_fast_mini"),       # could be 'tiny', 'rps', 'rps_mini' or possibly 
                                 # '2007', '2016test', 'rps_test_45', or 'main'
     load_zones = ('Oahu',),       # subset of load zones to model
     load_scen_id = "med",        # "hist"=pseudo-historical, "med"="Moved by Passion", "flat"=2015 levels
     fuel_scen_id = 'EIA_ref',      # '1'=low, '2'=high, '3'=reference, 'EIA_ref'=EIA-derived reference level
-    ev_scen_id = None,              # 1=low, 2=high, 3=reference (omitted or None=none)
+    ev_scen_id = 2,              # 1=low, 2=high, 3=reference (omitted or None=none)
     enable_must_run = 0,     # should the must_run flag be converted to 
                              # set minimum commitment for existing plants?
     exclude_technologies = ('CentralPV', 'DistPV_flat'),     # list of technologies to exclude
@@ -108,44 +125,30 @@ args.update(
 )
 
 args.update(
-    rps_targets = {2015: 0.15, 2020: 0.30, 2030: 0.40, 2040: 0.70, 2045: 1.00}
+    rps_targets = {2020: 0.4, 2025: 0.7, 2030: 1.0, 2035: 1.0},
 )
 
 # data definitions for alternative scenarios
 alt_args = [
-    # dict(),         # base scenario
-    # dict(inputs_subdir='high_oil_price', fuel_scen_id='EIA_high'),
-    # dict(inputs_subdir='low_oil_price', fuel_scen_id='EIA_low'),
-    # dict(inputs_subdir='lng_oil_peg', fuel_scen_id='EIA_lng_oil_peg'),
-    # dict(inputs_subdir='high_lng_oil_peg', fuel_scen_id='EIA_high_lng_oil_peg'),
-    # dict(inputs_subdir='re_cost_trend',
-    #     wind_capital_cost_escalator=0.011,
-    #     pv_capital_cost_escalator=-0.064),
-    # dict(inputs_subdir='triple_ph',
-    #     pumped_hydro_max_build_count=3,
-    #     pumped_hydro_capital_cost_per_mw=1.25*args['pumped_hydro_capital_cost_per_mw']),
-    # dict(inputs_subdir='efficient_ph',
-    #     pumped_hydro_efficiency=0.8),
-    # dict(inputs_subdir='rps_fast',
-    #     # wind_capital_cost_escalator=0.011,
-    #     # pv_capital_cost_escalator=-0.064,
-    #     rps_targets = {2020: 0.4, 2025: 0.6, 2030: 0.8, 2035: 1.0},
-    #     time_sample = "rps_fast_mini",
-    #     ev_scen_id = 2, # high adoption (not used for now)
-    #     fuel_scen_id = 'EIA_ref'  # 'EIA_ref_no_biofuel' eliminates all biofuel, but rps.py can restrict it more precisely
-    # ),
-    dict(inputs_subdir='rps_2030',
-        # wind_capital_cost_escalator=0.011,
-        # pv_capital_cost_escalator=-0.064,
-        rps_targets = {2020: 0.4, 2025: 0.7, 2030: 1.0, 2035: 1.0},
-        time_sample = "rps_fast_mini",
-        ev_scen_id = 2, # high adoption (not used for now)
-        fuel_scen_id = 'EIA_ref',  # 'EIA_ref_no_biofuel' eliminates all biofuel, but rps.py can restrict it more precisely
+    dict(),         # base scenario
+    dict(inputs_subdir='high_oil_price', fuel_scen_id='EIA_high'),
+    dict(inputs_subdir='low_oil_price', fuel_scen_id='EIA_low'),
+    dict(inputs_subdir='lng_oil_peg', fuel_scen_id='EIA_lng_oil_peg'),
+    dict(inputs_subdir='high_lng_oil_peg', fuel_scen_id='EIA_high_lng_oil_peg'),
+    dict(inputs_subdir='re_cost_trend',
+        wind_capital_cost_escalator=0.011,
+        pv_capital_cost_escalator=-0.064),
+    dict(inputs_subdir='triple_ph',
         pumped_hydro_projects=[
             args["pumped_hydro_projects"][0],   # standard Lake Wilson project
             ['Project_2_(1.2x)', 'Oahu', 1.2*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
             ['Project_3_(1.3x)', 'Oahu', 1.3*2800*1000+35e6/150, 50, 0.015, 0.77, 0, 100],
         ]
+    ),
+    dict(
+        inputs_subdir='rps_2045',
+        time_sample = "rps_mini",
+        rps_targets = {2015: 0.15, 2020: 0.30, 2030: 0.40, 2040: 0.70, 2045: 1.00}
     ),
 ]
 
