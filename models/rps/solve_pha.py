@@ -1,5 +1,9 @@
 #!/usr/bin/env python
 
+from mpi4py import MPI
+mpi_comm = MPI.COMM_WORLD
+mpi_rank = mpi_comm.Get_rank()
+
 import sys, os, time, fcntl
 import pdb, traceback
 
@@ -98,7 +102,7 @@ def main():
 def solve(
     inputs_dir='inputs', inputs_subdir='', outputs_dir='outputs', 
     rps=True, renewables=True, wind=None, central_pv=None,
-    demand_response_simple=True, dr_shares=[0.3],
+    demand_response=True, dr_shares=[0.3],
     ev=True, 
     pumped_hydro=True, ph_year=None, ph_mw=None,
     fed_subsidies=False,
@@ -118,11 +122,12 @@ def solve(
     modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 
         'switch_patch', 'batteries', 'rps']
     modules.append('emission_rules')    # no burning LSFO after 2017 except in cogen plants
-    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response_simple']:
+    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response']:
         if locals()[m] is True:
             modules.append(m)
-    if demand_response_simple is not True:
+    if demand_response is not True:
         dr_shares = [0.00]
+    dr_share = dr_shares[0] # no loop in this version
     # TODO: treat the 'no_*' modules as standard scenario names 
     # (i.e., include no_renewables, etc. instead of excluding renewables, etc.)
     if renewables is False:
@@ -196,21 +201,20 @@ def solve(
         switch_instance.RPS_Enforce.deactivate()
         switch_instance.preprocess()
 
+    if demand_response:
+        switch_instance.demand_response_max_share = dr_share
+        switch_instance.preprocess()
+
     # investigate the cost_components_annual elements
-    # import pdb; pdb.set_trace()
+    import pdb; pdb.set_trace()
 
     output_dir = outputs_dir    # assign to global variable with slightly different name (ugh)
     setup_results_dir()
     create_batch_results_file(switch_instance, scenario=tag)
         
-    log("dr_shares = " + str(dr_shares) + "\n")
-    for dr_share in dr_shares:
-        if demand_response_simple:
-            switch_instance.demand_response_max_share = dr_share
-            switch_instance.preprocess()
     
-        log("solving model with max DR={dr}...\n".format(dr=dr_share)); tic()
-
+    while True
+    
         # make sure the minimum-cost objective is in effect
         switch_instance.Smooth_Free_Variables.deactivate()
         switch_instance.Minimize_System_Cost.activate()
@@ -289,6 +293,61 @@ def _solve(m):
     toc()
     
     return results
+    
+def progressive_hedging_adjust(m):
+    """Communicate between different sub-models and adjust the target values."""
+    # see http://www.orsnz.org.nz/conf33/papers/p84.pdf
+    # and http://www.optimization-online.org/DB_FILE/2008/09/2089.pdf
+    # and http://www.math.washington.edu/~rtr/papers/rtr120-ScenariosAggregation.pdf
+    
+    build_quantities=dict()
+    for cn in ["BuildProj", "BuildBattery", "BuildPumpedHydroMW"]:
+        # These are all coincidentally indexed over two elements (project or zone, period)
+        c = getattr(m, cn)
+        for (i, j) in c:
+            build_quantities[(cn, i, j)] = value(c[i, j])
+
+    # collect or send build_quantities
+    data = comm.gather(build_quantities, root=0)
+    n = len(data)   # should also equal mpi_comm.Get_size()
+    
+    if data is None:
+        build_quantities_avg = None
+    else:
+        # this is the root node
+        # calculate build_quantities_avg (target to converge on)
+        build_quantities_avg = {k: sum(d[k] for d in data)/n for k in data[0]}
+        
+    # send or receive build_quantities_avg
+    build_quantities_avg = comm.bcast(build_quantities_avg, root=0)
+    
+    # update the model
+    if not hasattr(m, "PHA_VARS")
+        # add the convergence target to the objective function
+        # initial weights for x deviations can be zero
+        # r can be constant (not clear what its magnitude should be)
+        # after each step, weights = weights + r (X - X_hat) (using the new X values)
+        m.PHA_VARS = Set(initialize=build_quantities_avg.keys())
+        m.PHA_weight = Param(m.PHA_VARS, default=0.0, mutable=True)
+        m.PHA_penalty_factor = Param(initialize=10)
+        m.PHA_target = Param(m.PHA_VARS, default=0.0, mutable=True)
+        # penalty value for deviations from the target; this is indexed
+        # over all periods just to make it easy to add to the model; only
+        # the first period actually matters
+        m.PHA_Penalty = Expression(m.PERIODS, rule=lambda m, p:
+            sum(
+                m.PHA_weight[cn, i, j] * getattr(m, cn)[i, j] - 
+                    for cn, i, j in m.PHA_VARS
+            ) if p = m.PERIODS.first() else 0.0
+        )
+        
+    for cn, i, j in m.PHA_VARS:
+        m.PHA_weight[cn, i, j] = ...
+        m.PHA_target[cn, i, j] = build_quantities_avg[cn, i, j]
+
+    m.PHA_Penalty.reconstruct()
+    m.Minimize_System_Cost.reconstruct()
+    # Check for convergence
     
 
 

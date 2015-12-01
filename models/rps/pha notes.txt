@@ -1,0 +1,51 @@
+we need to know the current values of all the variables referenced in m.cost_components_annual
+we know the parent expression is indexed over periods, but it may be a sum of multiple terms
+and it includes both constant coefficients. Can we be sure these are indexed the same way on both models?
+
+dig through m.cost_components_annual and find the names and index values of all 
+
+Fuel_Costs_Annual is calculated based on FuelConsumptionByTier, which is indexed by period but
+calculated based on individual hours... not an investment variable.
+All we're really interested in are contributors to 
+Total_Proj_Fixed_Costs_Annual and Battery_Fixed_Cost_Annual and Pumped_Hydro_Fixed_Cost_Annual
+
+
+need a new obj function element that minimizes the differences in 
+BuildProj[proj, period]
+BuildBattery[zone, period]
+BuildPumpedHydroMW[proj, period]
+For this, we need to gather the current values of these vars (and their indexes) from the sub-models, average them across sub-models, then pass the averages back to the sub-models.
+
+
+
+['Total_Proj_Fixed_Costs_Annual', 
+'Fuel_Costs_Annual', 
+'RFM_Fixed_Costs_Annual', 
+'Battery_Fixed_Cost_Annual', 
+'ev_extra_annual_cost', 
+'ice_fuel_cost', 
+'Pumped_Hydro_Fixed_Cost_Annual']
+
+
+def fix_obj_expression(e, status=True):
+    """Recursively fix all variables included in an objective expression."""
+    try:
+        if hasattr(e, 'fixed'):
+            e.fixed = status      # see p. 171 of the Pyomo book
+        elif hasattr(e, '_numerator'):
+            for e2 in e._numerator:
+                fix_obj_expression(e2)
+            for e2 in e._denominator:
+                fix_obj_expression(e2)
+        elif hasattr(e, '_args'):
+            for e2 in e._args:
+                fix_obj_expression(e2)
+        elif hasattr(e, 'expr'):
+            fix_obj_expression(e.expr)
+        elif hasattr(e, 'is_constant') and e.is_constant():
+            pass    # numeric constant
+        else:
+            raise ValueError('Expression {e} does not have an expr, fixed or _args property, so it cannot be fixed.'.format(e=e))
+    except:
+        import pdb
+        pdb.set_trace()

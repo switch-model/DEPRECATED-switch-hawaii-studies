@@ -39,7 +39,7 @@ scenario_list = [
     '--scenario_name no_ph -n pumped_hydro',
     '--scenario_name triple_ph --inputs_subdir triple_ph',
 
-    '--scenario_name no_new_renewables -n rps -n renewables -n demand_response -n pumped_hydro',
+    '--scenario_name no_new_renewables -n rps -n renewables -n demand_response_simple -n pumped_hydro',
 
     '--scenario_name low_oil_price --inputs_subdir low_oil_price',
     '--scenario_name high_oil_price --inputs_subdir high_oil_price',
