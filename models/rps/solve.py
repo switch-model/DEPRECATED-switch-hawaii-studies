@@ -101,6 +101,7 @@ def main():
 def solve(
     inputs_dir='inputs', inputs_subdir='', outputs_dir='outputs', 
     rps=True, renewables=True, wind=None, central_pv=None,
+    batteries=True,
     demand_response_simple=True, dr_shares=[0.3],
     ev=True, 
     pumped_hydro=True, ph_year=None, ph_mw=None,
@@ -121,9 +122,9 @@ def solve(
     inputs_dir = os.path.join(inputs_dir, inputs_subdir)
 
     modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 
-        'switch_patch', 'batteries', 'rps']
+        'switch_patch', 'rps']
     modules.append('emission_rules')    # no burning LSFO after 2017 except in cogen plants
-    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response_simple', 'hydrogen']:
+    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response_simple', 'hydrogen', 'batteries']:
         if locals()[m] is True:
             modules.append(m)
     if demand_response_simple is not True:
@@ -192,7 +193,7 @@ def solve(
             obj = obj + sum(m.ChargeEVs[z, t]*m.ChargeEVs[z, t] for z in m.LOAD_ZONES for t in m.TIMEPOINTS)
         return obj
         
-    switch_model.Smooth_Free_Variables = Objective(rule=Smooth_Free_Variables_obj_rule)
+    switch_model.Smooth_Free_Variables = Objective(rule=Smooth_Free_Variables_obj_rule, sense=minimize)
     
     toc()   # done defining model
 
@@ -268,6 +269,28 @@ def solve(
         # if pumped_hydro:
         #     switch_instance.BuildPumpedHydroMW.pprint()
 
+        if hasattr(switch_instance, "ChargeBattery"):
+            double_charge = [
+                (
+                    z, t, 
+                    switch_instance.ChargeBattery[z, t].value, 
+                    switch_instance.DischargeBattery[z, t].value
+                ) 
+                    for z in switch_instance.LOAD_ZONES 
+                        for t in switch_instance.TIMEPOINTS 
+                            if switch_instance.ChargeBattery[z, t].value > 0 
+                                and switch_instance.DischargeBattery[z, t].value > 0
+            ]
+            if len(double_charge) > 0:
+                print ""
+                print "WARNING: batteries are simultaneously charged and discharged in some hours."
+                print "This is usually done to relax the biofuel limit."
+                for (z, t, c, d) in double_charge:
+                    print 'ChargeBattery[{z}, {t}]={c}, DischargeBattery[{z}, {t}]={d}'.format(
+                        z=z, t=switch_instance.tp_timestamp[t],
+                        c=c, d=d
+                    )
+
         append_batch_results(switch_instance, scenario=tag)
         
         if len(dr_shares) > 1:
@@ -307,26 +330,25 @@ def _solve(m):
 
 def fix_obj_expression(e, status=True):
     """Recursively fix all variables included in an objective expression."""
-    try:
-        if hasattr(e, 'fixed'):
-            e.fixed = status      # see p. 171 of the Pyomo book
-        elif hasattr(e, '_numerator'):
-            for e2 in e._numerator:
-                fix_obj_expression(e2)
-            for e2 in e._denominator:
-                fix_obj_expression(e2)
-        elif hasattr(e, '_args'):
-            for e2 in e._args:
-                fix_obj_expression(e2)
-        elif hasattr(e, 'expr'):
-            fix_obj_expression(e.expr)
-        elif hasattr(e, 'is_constant') and e.is_constant():
-            pass    # numeric constant
-        else:
-            raise ValueError('Expression {e} does not have an expr, fixed or _args property, so it cannot be fixed.'.format(e=e))
-    except:
-        import pdb
-        pdb.set_trace()
+    if hasattr(e, 'fixed'):
+        e.fixed = status      # see p. 171 of the Pyomo book
+    elif hasattr(e, '_numerator'):
+        for e2 in e._numerator:
+            fix_obj_expression(e2, status)
+        for e2 in e._denominator:
+            fix_obj_expression(e2, status)
+    elif hasattr(e, '_args'):
+        for e2 in e._args:
+            fix_obj_expression(e2, status)
+    elif hasattr(e, 'expr'):
+        fix_obj_expression(e.expr, status)
+    elif hasattr(e, 'is_constant') and e.is_constant():
+        pass    # numeric constant
+    else:
+        raise ValueError(
+            'Expression {e} does not have an expr, fixed or _args property, ' +
+            'so it cannot be fixed.'.format(e=e)
+        )
         
 def setup_results_dir():
     # make sure there's a valid output directory
