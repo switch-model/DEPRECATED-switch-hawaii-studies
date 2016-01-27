@@ -224,7 +224,14 @@ CREATE TABLE interconnect
    CONSTRAINT interconnect_id_pkey PRIMARY KEY (interconnect_id)
 );
 
-
+-- At some point interconnect was filled in with the equivalent of the following command.
+-- The original code is missing, but these appear to be the population-weighted centers of each county.
+INSERT INTO interconnect (interconnect_id, county, lat, lon) VALUES 
+    (1, 'Honolulu', 21.372464, -157.913673),
+    (2, 'Hawaii', 19.672837, -155.421895),
+    (3, 'Maui', 20.863747, -156.493816),
+    (4, 'Kauai', 22.021022, -159.442112),
+    (5, 'Kalawao', 21.188495, -156.979972);
 
 CREATE TABLE cluster_hourly AS
 	SELECT  T1.cluster_id, A1.timestamp, 
@@ -235,85 +242,46 @@ CREATE TABLE cluster_hourly AS
   	GROUP BY T1.cluster_id, A1.timestamp;
 
 
-CENTRAL STATION PV
+-----------------------------------------------------------------------------------------
+-- NOTE: Matthias Fripp moved all Central Tracking PV (central_pv) code from here
+-- to DB_Code/tracking_PV/TrackingPV_Duffie_Horizontal_NS_aligned_Panels_and_Troughs_7.py
+-- on 2015-12-13, since it was incomplete and we needed to write code to cluster
+-- the sites (instead of one project per km cell)
+-- THAT CODE SHOULD BE RUN BEFORE CONTINUING THIS SCRIPT.
+-----------------------------------------------------------------------------------------
 
-CREATE TABLE cell_central_pv_capacity
+-----------------------------------------------------------------------------------------
+-- NOTE: Matthias Fripp removed a small amount of distributed PV code from here on 
+-- 2015-12-13 because it duplicated code already in 
+-- DB_Code/tracking_PV/SolarPowerHourly.py (from 2014-06-24 or earlier)
+-- This code creates the cell_pv_power_hourly table.
+-- THAT CODE SHOULD BE RUN BEFORE CONTINUING THIS SCRIPT.
+-----------------------------------------------------------------------------------------
 
-(
-  grid_id character(1) NOT NULL,
-  
-i smallint NOT NULL,
-  
-j smallint NOT NULL,
-  
-central_area double precision,
-  
-net_pv_capacity double precision, 
--- net_pv_capacity=0.75 ( i.e. coverage) * 0.12 ( i.e. efficiency) * 10^(-3) * roof_area (i.e. central_system)
-  
-CONSTRAINT grid_id_ij_pkey1 PRIMARY KEY (grid_id, i, j)
-)
-WITH (
-  OIDS=FALSE
-);
+-----------------------------------------------------------------------------------------
+-- MF note 2015-12-30
 
-ALTER TABLE cell_central_pv_capacity
-  OWNER TO admin;
+-- connect_cost table is created in DB_Code/ConnectCost/connect_cost.py, using 0 for connect_length_km 
+-- and 0 for connect_cost_per_kw, for everything in the max_capacity table. It looks like this was
+-- originally run after all technologies (Wind, DistPV and CentralPV) were added to max_capacity,
+-- and before the code below here.
 
+-- We seem to have lost the code to create connect_distance_temp.
+-- This contains connect_length_km for all Wind and CentralPV sites.
+-- This is probably found by calculating the distance from the site 
+-- to the interconnect specified for the same county.
+-- lat & lon may come from the cluster table (for wind turbines) 
+-- and cell_central_pv_capacity <-> cell (for CentralPV)
 
-
-INSERT INTO "cell_pv_power_hourly" (grid_id,i,j,complete_time_stamp,pv_power) 
-SELECT "hourly_average".grid_id,"hourly_average".i,"hourly_average".j,"hourly_average".complete_time_stamp,
-"cell_roofarea_pv_capacity".net_pv_capacity*"hourly_average".dswrf/1000 FROM "hourly_average" INNER JOIN 
-"cell_roofarea_pv_capacity" ON "hourly_average".grid_id="cell_roofarea_pv_capacity".grid_id AND 
-"hourly_average".i="cell_roofarea_pv_capacity".i AND "hourly_average".j="cell_roofarea_pv_capacity".j
-
-
-
-CREATE TABLE central_pv_temp AS
-	SELECT  A1.grid_id, A1.i, A1.j, A1.date, A1.hour, A1.complete_time_stamp, A1.dswrf
-  	FROM cell_central_pv_capacity T1, hourly_average A1
-  	WHERE (T1.grid_id = A1.grid_id 
-  	AND T1.i = A1.i AND T1.j = A1.j);
-
-UPDATE central_pv_temp SET cp_cell = (dswrf*0.001);
-
-CREATE TABLE cluster_solar_hourly AS
-	SELECT  T1.site_id, A1.complete_time_stamp, 
-	SUM(A1.cp_cell*T1.net_pv_capacity)/SUM(T1.net_pv_capacity) AS capacity_factor 
-  	FROM cell_central_pv_capacity T1, central_pv_temp A1
-  	WHERE (T1.grid_id = A1.grid_id 
-  	AND T1.i = A1.i AND T1.j = A1.j)
-  	GROUP BY T1.site_id, A1.complete_time_stamp;
-
-
-
-UPDATE central_pv_temp SET cp_cell_updated = cp 
-FROM turb_power_temp
-WHERE turbine.turbine_id = turb_power_temp.turbine_id;
-
-UPDATE central_pv_temp SET cp_cell_updated = cp_cell;
-
-UPDATE central_pv_temp SET cp_cell_updated = 1 
-WHERE cp_cell_updated> 1;
-
-
-CREATE TABLE central_pv_hourly AS
-	SELECT  site_id, complete_time_stamp, cp_cell_updated AS cap_factor
-  	FROM central_pv_temp ;
-
-
-CREATE TABLE central_pv AS
-	SELECT  A1.site_id, A1.net_pv_capacity as size_MW, T1.interconnect_id
-  	FROM cell_central_pv_capacity A1, interconnect T1
-  	WHERE T1.interconnect_id=1;
-
+-- TODO: integrate connect_cost.py with this code
+-- TODO: include lat, lon, interconnect ID, connect_length_km and connect_cost_per_kw in max_capacity itself
+-- TODO: also take note of additional "To Do" from Paritosh about connect_costs and "connection cost" below
+-----------------------------------------------------------------------------------------
 
 UPDATE connect_cost SET connect_length_km = connect_distance_temp.connect_length_km
 FROM connect_distance_temp
 WHERE connect_cost.technology = connect_distance_temp.technology AND 
 	connect_cost.site = connect_distance_temp.site;
-
 
 
 CREATE TABLE "study_date"(period smallint, study_date int, month_of_year smallint, 
@@ -431,7 +399,7 @@ where technology = 'DistPV'
 -- generator_costs incorrectly uses data from a LM6000 PG in combined cycle mode (HECO IRP App. K table L-6c/L-7c)
 -- as the parameters for a LM6000 PG used in simple-cycle mode (which should be HECO IRP App. K table L-2).
 -- While we're at it, we eliminate the distinction between LNG and diesel plants (since the current version
--- of SWITCH-Hawaii allows fuel switching to any higher grade.
+-- of SWITCH-Hawaii allows fuel switching to any higher grade).
 -- NOTE: the IRP quotes different costs for plants running on LNG or biodiesel. But we use a single plant
 -- technology for both. If we use the higher biodiesel costs, that will be slightly prejudicial against
 -- a LNG-heavy solution. But if we use the lower LNG costs, it will make biodiesel look slightly cheaper
@@ -564,8 +532,10 @@ DO $$ BEGIN PERFORM drop_temporary_table('t_flat_load'); END $$;
 CREATE TEMPORARY TABLE t_flat_load AS 
     SELECT * FROM system_load_scale WHERE load_scen_id = 'med';
 UPDATE t_flat_load f
-    SET peak_fore = s.peak_fore, avg_fore = s.avg_fore, scale = s.scale, "offset" = s."offset"
+    SET load_scen_id='flat',
+        peak_fore = s.peak_fore, avg_fore = s.avg_fore, scale = s.scale, "offset" = s."offset"
     FROM system_load_scale s
-    WHERE s.load_scen_id = f.load_scen_id AND s.year_fore = 2015;
-    
-INSERT INTO system_load_scale (load_zone, year_hist, load_scen_id, year_fore, peak_hist, peak_fore, avg_hist, avg)
+    WHERE s.load_scen_id=f.load_scen_id AND s.year_fore = 2015
+        AND s.load_zone=f.load_zone AND s.year_hist=f.year_hist;
+-- select * from t_flat_load where load_zone='Oahu'  order by year_hist, year_fore;
+INSERT INTO system_load_scale SELECT * from t_flat_load;

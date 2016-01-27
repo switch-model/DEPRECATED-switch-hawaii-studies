@@ -1,3 +1,37 @@
+for several indexed variables (which may have an indexing set of arbitrary dimension):
+write out the values to a file (multiple files?)
+gather all the files together and write averages to file(s)
+when launching new model, read mean values from file(s)
+penalize deviations from these
+
+also write out the current penalty factors for each instance, and send those back when re-launching the instance.
+so ... for each variable we have mean-value and penalty-value parameters.
+just need a standard name for the component, e.g., PHA_VarName.tab
+do we need to tag these by scenarios too? probably, to avoid trouble. 
+
+launcher can launch each instance in a temp dir, then files get written there, read back by the launcher, re-written by the launcher...
+
+launcher needs to keep track of all the different scenarios - are all the prices prewritten in files, or does it construct prices each time? is it really going to have 100 copies of the datasets (22 MB for variable cap factors for each model)?
+
+solution: symlinks or cross-link system in the data process? (but then it still has to get resolved to send out the files)
+solution: create alternative versions of the particular files we want (just prices); swap those in for each scenario. But then where do we store the current penalty factors for each scenario? again, just have alternative versions for every scenario? one folder for each scenario on the master? copy temp files there, etc....
+
+create an inputs directory with 100 subdirs with alternative files (which overlay the root versions)
+until converged:
+    for each scenario:
+        copy inputs from root and then subdir to a temp dir
+        run model
+        model reads penalty factors and means; writes current values and penalty factors
+        gather outputs back to inputs dir (not great but OK)
+    calculate new means by scanning all inputs dirs
+    write new input files for each scenario
+write final plan
+
+    
+
+
+
+
 we need to know the current values of all the variables referenced in m.cost_components_annual
 we know the parent expression is indexed over periods, but it may be a sum of multiple terms
 and it includes both constant coefficients. Can we be sure these are indexed the same way on both models?

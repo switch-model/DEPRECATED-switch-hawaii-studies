@@ -11,9 +11,10 @@ outputs/
 inputs_*/
 outputs_*/
 runfile*.txt
-completed_scenarios.txt
-scenarios_to_run.txt
+completed_scenarios*.txt
+scenarios_to_run*.txt
 progress*.txt
+Fuel Costs Monte Carlo-3.xlsx
 
 # folders cloned from other repositories
 switch/

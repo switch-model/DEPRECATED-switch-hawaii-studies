@@ -65,6 +65,9 @@ def main():
     parser.add_argument('--ph_mw', type=float)
     parser.add_argument('--biofuel_limit', type=float)
     parser.add_argument('--dr_shares', nargs='+', type=float)
+    parser.add_argument('--ev_flat', action='store_true')
+    # TODO: --ev_flat only works from the command line, not the scenarios_to_run file;
+    # this needs to be fixed, but for now you can just call python solve.py --ev_flat to force it.
     
     cmd_line_args = scenarios.cmd_line_args()
 
@@ -101,8 +104,10 @@ def solve(
     demand_response_simple=True, dr_shares=[0.3],
     ev=True, 
     pumped_hydro=True, ph_year=None, ph_mw=None,
+    hydrogen=True,
     fed_subsidies=False,
     biofuel_limit=0.05,
+    ev_flat=False,
     scenario_name=None, tag=None
     ):
     # load and solve the model, using specified configuration
@@ -118,7 +123,7 @@ def solve(
     modules = ['switch_mod', 'fuel_markets', 'fuel_markets_expansion', 'project.no_commit', 
         'switch_patch', 'batteries', 'rps']
     modules.append('emission_rules')    # no burning LSFO after 2017 except in cogen plants
-    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response_simple']:
+    for m in ['ev', 'pumped_hydro', 'fed_subsidies', 'demand_response_simple', 'hydrogen']:
         if locals()[m] is True:
             modules.append(m)
     if demand_response_simple is not True:
@@ -161,6 +166,14 @@ def solve(
         print "Limiting (bio)fuels to {l}% of electricity production.".format(l=biofuel_limit*100.0)
         switch_model.rps_fuel_limit = biofuel_limit
 
+    if ev_flat and ev:
+        print "Charging EVs as baseload."
+        switch_model.ChargeEVs_flat = Constraint(
+            switch_model.LOAD_ZONES, switch_model.TIMEPOINTS, 
+            rule=lambda m, z, tp:
+                m.ChargeEVs[z, tp] * m.ts_duration_hrs[m.tp_ts[tp]] == m.ev_mwh_ts[z, m.tp_ts[tp]]
+        )
+
     # add an alternative objective function that smoothes out various non-cost variables
     def Smooth_Free_Variables_obj_rule(m):
         # minimize production (i.e., maximize curtailment / minimize losses)
@@ -171,11 +184,11 @@ def solve(
                         for component in m.LZ_Energy_Components_Produce)
         # also minimize the magnitude of demand adjustments
         if hasattr(m, "DemandResponse"):
-            print "Will smoothe DemandResponse."
+            print "Will smooth DemandResponse."
             obj = obj + sum(m.DemandResponse[z, t]*m.DemandResponse[z, t] for z in m.LOAD_ZONES for t in m.TIMEPOINTS)
         # also minimize the magnitude of EV charging
         if hasattr(m, "ChargeEVs"):
-            print "Will smoothe EV charging."
+            print "Will smooth EV charging."
             obj = obj + sum(m.ChargeEVs[z, t]*m.ChargeEVs[z, t] for z in m.LOAD_ZONES for t in m.TIMEPOINTS)
         return obj
         
@@ -235,10 +248,10 @@ def solve(
         switch_instance.Smooth_Free_Variables.activate()
         switch_instance.preprocess()
         log("smoothing free variables...\n"); tic()
-        results = _solve(switch_instance)    
+        results = _solve(switch_instance)
         # restore hourly duals from the original solution
         for (z, t, d) in old_duals:
-            switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
+           switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
         # unfix the variables
         fix_obj_expression(switch_instance.Minimize_System_Cost, False)
         log("finished smoothing free variables; "); toc()
@@ -332,7 +345,7 @@ def summary_headers(m, scenario):
     )
     
 def summary_values(m, scenario):
-    demand_components = [c for c in ('lz_demand_mw', 'DemandResponse') if hasattr(m, c)]
+    demand_components = [c for c in ('lz_demand_mw', 'DemandResponse', 'ChargeEVs') if hasattr(m, c)]
     values = []
     
     # scenario name and looping variables
@@ -403,6 +416,37 @@ def write_results(m, tag=None):
         tag = "_"+str(tag)
     else:
         tag = ""
+
+    # needed temporarily, to figure out how non-EV costs are affecting the reported costs per kWh
+    # (Ack!)
+    # (never actually used, because it turned out the EV scenarios were using twice as much power
+    # as they should anyway, and then I dropped the extra ev costs from the obj fn)
+    # demand_components = [c for c in ('lz_demand_mw', 'DemandResponse', 'ChargeEVs') if hasattr(m, c)]
+    # util.write_table(m, m.PERIODS,
+    #     output_file=os.path.join(output_dir, "ev_extra_costs{t}.tsv".format(t=tag)),
+    #     headings=("period", "load_zone", "extra_vehicle_costs"),
+    #     values=lambda m, p: (
+    #         p,
+    #         # code from SystemCostPerPeriod in financials.py
+    #         sum(
+    #             getattr(m, annual_cost)[p]
+    #             for annual_cost in ['ev_extra_annual_cost', 'ice_fuel_cost']
+    #         )
+    #         *
+    #         # Conversion to lump sum at beginning of period
+    #         uniform_series_to_present_value(
+    #             m.discount_rate, m.period_length_years[p]) *
+    #         # Conversion to base year
+    #         future_to_present_value(
+    #             m.discount_rate, (m.period_start[p] - m.base_financial_year))
+    #         / sum(
+    #             m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
+    #             sum(getattr(m, c)[lz, t] for c in demand_components for lz in m.LOAD_ZONES)
+    #             for t in m.PERIOD_TPS[p]
+    #         )
+    #     )
+    # )
+    
         
     util.write_table(m, 
         output_file=os.path.join(output_dir, "summary{t}.tsv".format(t=tag)), 

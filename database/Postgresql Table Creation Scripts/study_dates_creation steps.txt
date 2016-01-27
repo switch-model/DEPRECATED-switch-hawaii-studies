@@ -641,6 +641,61 @@ update study_date set
 insert into study_hour select study_hour_main.*, '2007' as time_sample 
     from study_hour_main join study_date using (study_date)
     where time_sample = '2007';
+
+-- all data for the year 2007, for setting baseline prices
+
+delete from study_periods where time_sample = '2007_full';
+insert into study_periods (time_sample, period) values ('2007_full', 2007);
+
+delete from study_date where time_sample = '2007_full';
+insert into study_date (time_sample, period, study_date, date)
+    select distinct 
+        '2007_full', extract(year from date_time), 
+        to_char(date_time, 'YYYYMMDD')::int, date(date_time)
+    from system_load where load_zone='Oahu' and extract(year from date_time)=2007
+    order by 3;
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = 1
+    where time_sample='2007_full';
+
+delete from study_hour where time_sample = '2007_full';
+insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
+    select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time
+    from study_date d join system_load l 
+        on d.date=date(l.date_time) and l.load_zone='Oahu'
+    where time_sample='2007_full'
+    order by 3;
+
+-- data for the 15th of each month in 2007, for experimenting with demand systems
+
+delete from study_periods where time_sample = '2007_15';
+insert into study_periods (time_sample, period) values ('2007_15', 2007);
+
+delete from study_date where time_sample = '2007_15';
+insert into study_date (time_sample, period, study_date, date)
+    select distinct 
+        '2007_15', extract(year from date_time), 
+        to_char(date_time, 'YYYYMMDD')::int, date(date_time)
+    from system_load where load_zone='Oahu' 
+        and extract(year from date_time)=2007 and extract(day from date_time)=15
+    order by 3;
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = extract(day from (date + '1 MONTH'::INTERVAL) - date)
+    where time_sample='2007_15';
+
+insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
+    select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time
+    from study_date d join system_load l 
+        on d.date=date(l.date_time) and l.load_zone='Oahu'
+    where time_sample='2007_15'
+    order by 3;
+
     
 ##############################################
 The following code was added by Paritosh 2015-09-17.

@@ -5,14 +5,21 @@ import datetime
 import os
 import psycopg2
 import sys
+import numpy as np
+from k_means import KMeans
 
 con = None
 cur = None
 f = None
 
-def execute(query):
+def execute(query, *args):
     print query
-    cur.execute(query)
+    cur.execute(query, *args)
+    con.commit()
+
+def executemany(query, *args):
+    print query
+    cur.executemany(query, *args)
     con.commit()
 
 # TODO: find the code that created the DistPV_flat (flat roofs) and DistPV_peak (peaked roofs) capacity factors
@@ -37,6 +44,22 @@ def execute(query):
 # This query works with 12.8 million rows, so it wouldn't need more than a few hundred MB to 
 # represent everything in RAM.
 
+def csv_to_dict(csv_file, *args, **kwargs):
+    # read csv_file using the python csv reader and return its columns as tuples in a dict,
+    # with keys matching the column names (sort of a transpose of the DictReader class)
+    # Note: this is pretty much the same as pandas.read_csv(csv_file)
+    with open(csv_file) as f:
+        reader = csv.reader(f, *args, **kwargs)
+        cols = reader.next() # header row
+        return dict(zip(cols, zip(*reader)))
+        # alternative, list-oriented code:
+        # data = list(csv.reader(f, *args, **kwargs))
+        # cols = data.pop(0) # header row
+        # return dict(zip(
+        #     cols,
+        #     [[r[i] for r in data] for i in range(len(cols))]
+        # ))
+
 try:
     ################   CHANGE THESE PARAMETERS ONLY   ################
     con = psycopg2.connect(database='switch', host='redr.eng.hawaii.edu')
@@ -53,6 +76,7 @@ try:
     execute("""
         CREATE TABLE cell_central_pv_capacity
         (
+            site_id int NOT NULL,
             grid_id character(1) NOT NULL,
             i smallint NOT NULL,
             j smallint NOT NULL,
@@ -74,13 +98,39 @@ try:
     # on 2015-12-13. We will eventually need to re-create this input file from scratch using
     # GIS filters. This table should have central_area = [usable area in square meters].
     
-
     # read in cell-level data
-    with open("cell_central_pv_capacity_original.csv") as f:
-        cells = [r.split(',') for r in f]
-    # drop header row
-    cells.remove[0]
-    # now each cell is a tuple of (site_id, grid_id, i, j, central_area, net_pv_capacity)
+    # table contains site_id, grid_id, i, j, central_area, net_pv_capacity,
+    # but we only use a few.
+    data = csv_to_dict'cell_central_pv_capacity_original.csv')
+    i = np.array(data["i"], dtype=float)
+    j = np.array(data["j"], dtype=float)
+    area = np.array(data["central_area"], dtype=float)
+
+    # cluster the cells into 150 projects (somewhat arbitrarily) instead of ~750,
+    # and use the cluster numbers as new site_id's.
+    km = KMeans(150, np.c_[i, j], size=0.0001*area)
+    km.init_centers()
+    km.find_centers()
+    # km.plot()
+    data["site_id"] = tuple(km.cluster_id) # array of cluster id's, same length as x and y
+    
+    executemany("""
+        INSERT INTO cell_central_pv_capacity
+        (grid_id, i, j, central_area, net_pv_capacity)
+        VALUES (:grid_id, :i, :j, :central_area, :net_pv_capacity)
+            i smallint NOT NULL,
+            j smallint NOT NULL,
+            central_area double precision,
+            net_pv_capacity double precision, 
+            CONSTRAINT grid_id_ij_pkey1 PRIMARY KEY (grid_id, i, j)
+        )
+        WITH (
+          OIDS=FALSE
+        );
+        ALTER TABLE cell_central_pv_capacity OWNER TO admin;
+    """)
+    
+
 
     # create tuples of (pv_capacity, i, j, [cell indices])
     # Here, we assume maximum project size in each cell is 
@@ -88,8 +138,27 @@ try:
     sites = [(c[4] * 0.75 * 1e-3 * 0.12, c[1], c[2], [i]) for i, c in enumerate(cells)].sorted()
     sites.sort()
     
+    dist = lambda s1, s2: (s1[2]-s2[2])**2 + (s1[3]-s2[3])**2
+    def join_sites(s, i1, i2):
+        # remove elements i1 and i2 from the list of sites s,
+        # then merge them and re-insert at the appropriate location
+        new = (s[i1][0] + s[i2][0], 0.5 * (s[i1][1] + s[i2][1]), 0.5 * (s[i1][2] + s[i2][2])
+        for i in [i1, i2].sorted().reverse():
+            del s[i]
+        
+
     # cluster cells with less than 40 MW of capacity
     while sites[0][0] < 40:
+        dists = [dist(sites[0], s) for s in sites[1:]]
+        min_dist = min(dists)
+        nearest_neighbors = [i+1 for i, d in enumerate(dists) if d == min_dist]
+        max_size = max(sites[i][0] for i in nearest_neighbors)
+        biggest_neighbors = [i for i in nearest_neighbors if sites[i][0] == max_size]
+        join_sites(sites, 0, biggest_neighbors[0])
+        
+        sites[]
+        
+        join = argmin(weighted_dist(sites[0], s) for s in sites[1:])
         
     
 
