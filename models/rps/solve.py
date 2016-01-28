@@ -243,22 +243,22 @@ def solve(
             raise RuntimeError("Infeasible model")
 
         # Freeze all direct-cost variables, and then solve the model against a smoothing objective instead of a cost objective.
-        # old_duals = [
-        #     (z, t, switch_instance.dual[switch_instance.Energy_Balance[z, t]])
-        #         for z in switch_instance.LOAD_ZONES
-        #             for t in switch_instance.TIMEPOINTS]
-        # fix_obj_expression(switch_instance.Minimize_System_Cost)
-        # switch_instance.Minimize_System_Cost.deactivate()
-        # switch_instance.Smooth_Free_Variables.activate()
-        # switch_instance.preprocess()
-        # log("smoothing free variables...\n"); tic()
-        # results = _solve(switch_instance)
-        # # restore hourly duals from the original solution
-        # for (z, t, d) in old_duals:
-        #    switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
-        # # unfix the variables
-        # fix_obj_expression(switch_instance.Minimize_System_Cost, False)
-        # log("finished smoothing free variables; "); toc()
+        old_duals = [
+            (z, t, switch_instance.dual[switch_instance.Energy_Balance[z, t]])
+                for z in switch_instance.LOAD_ZONES
+                    for t in switch_instance.TIMEPOINTS]
+        fix_obj_expression(switch_instance.Minimize_System_Cost)
+        switch_instance.Minimize_System_Cost.deactivate()
+        switch_instance.Smooth_Free_Variables.activate()
+        switch_instance.preprocess()
+        log("smoothing free variables...\n"); tic()
+        results = _solve(switch_instance)
+        # restore hourly duals from the original solution
+        for (z, t, d) in old_duals:
+           switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
+        # unfix the variables
+        fix_obj_expression(switch_instance.Minimize_System_Cost, False)
+        log("finished smoothing free variables; "); toc()
 
         if util.interactive_session:
             print "Model solved successfully."

@@ -17,13 +17,13 @@ import scenario_data, scenarios
 # (--scenario does this already)
 
 scenario_list = [
-    --scenario_name 100_ph_100_biofuel --ph_mw 100 --biofuel_limit 1.00 -n hydrogen
-    --scenario_name 100_ph_5_biofuel --ph_mw 100 --biofuel_limit 0.05 -n hydrogen
-    --scenario_name 100_ph_5_biofuel_hydrogen --ph_mw 100 --biofuel_limit 0.05
+    '--scenario_name 100_biofuel_0_dr --biofuel_limit 1.00 -n hydrogen -n demand_response_simple --flat_ev',
+    '--scenario_name 5_biofuel_0_dr --biofuel_limit 0.05 -n hydrogen -n demand_response_simple --flat_ev',
+    '--scenario_name 5_biofuel_hydrogen_0_dr --biofuel_limit 0.05 -n demand_response_simple --flat_ev',
 
-    --scenario_name 100_ph_100_biofuel_0_dr --ph_mw 100 --biofuel_limit 1.00 -n hydrogen -n demand_response_simple --flat_ev
-    --scenario_name 100_ph_5_biofuel_0_dr --ph_mw 100 --biofuel_limit 0.05 -n hydrogen -n demand_response_simple --flat_ev
-    --scenario_name 100_ph_5_biofuel_hydrogen_0_dr --ph_mw 100 --biofuel_limit 0.05 -n demand_response_simple --flat_ev
+    '--scenario_name 5_biofuel_hydrogen --biofuel_limit 0.05',
+    '--scenario_name 100_biofuel --biofuel_limit 1.00 -n hydrogen',
+    '--scenario_name 5_biofuel --biofuel_limit 0.05 -n hydrogen',
 ]
 
 
@@ -156,14 +156,14 @@ args.update(
 
 # data for sodium sulfur batteries from Dropbox/kauai/OPL/Storage/power_plan.xlsx
 # and http://www.energystoragenews.com/NGK%20Insulators%20Sodium%20Sulfur%20Batteries%20for%20Large%20Scale%20Grid%20Energy%20Storage.html
-# TODO: switch to better cost estimates
-args.update(
-    battery_capital_cost_per_mwh_capacity=363636.3636,
-    battery_n_cycles=4500,
-    battery_max_discharge=0.9,
-    battery_min_discharge_time=6,
-    battery_efficiency=0.75,
-)
+# This version was used for model runs before 2016-01-27
+# args.update(
+#     battery_capital_cost_per_mwh_capacity=363636.3636,
+#     battery_n_cycles=4500,
+#     battery_max_discharge=0.9,
+#     battery_min_discharge_time=6,
+#     battery_efficiency=0.75,
+# )
 
 # battery data for 7.2 MW sodium sulfide battery from Black & Veatch 2012, 
 # "Cost and Performance Data for Power Generation Technologies"
@@ -185,24 +185,24 @@ args.update(
 # battery data for 50 MW/300 MWh system from EPRI, 2010, "Electric Energy Storage Technology Options: 
 # A White Paper Primer on Applications, Costs, and Benefits",
 # http://large.stanford.edu/courses/2012/ph240/doshay1/docs/EPRI.pdf
-# TODO: use these as the preferred values for future model runs
-# inflate_2010 = (1.0+args["inflation_rate"])**(args["base_financial_year"]-2010)
-# args.update(
-#     battery_capital_cost_per_mwh_capacity=inflate_2010*3200.0*1000/6,
-#     battery_n_cycles=4500,
-#     battery_max_discharge=0.85,
-#     # DOD not specified;
-#     # https://en.wikipedia.org/wiki/Sodium-sulfur_battery says 'Lifetime of 2,500 cycles at 100% depth of discharge (DOD), or 4,500 cycles at 80% DOD';
-#     # brochure cited by wikipedia at http://web.archive.org/web/20060205153231/http://www.ulvac-uc.co.jp/prm/prm_arc/049pdf/ulvac049-02.pdf gives 4,500 cycles at 85% DOD.
-#     # this article says "Lifetime of 2,500 cycles (at 100% DOD - depth of discharge), or 4,500 cycles (at 80% DOD)":
-#     # http://www.rellpower.com/wp/wp-content/uploads/2015/07/Ioxus-The-Case-for-Sodium-Sulfur-Batters-and-Ultracapacitors.pdf
-#     # Bito (NGK Insulators), 2005, "Overview of the Sodium-Sulfur Battery for the
-#     # IEEE Stationary Battery Committee", http://dx.doi.org/10.1109/PES.2005.1489556 says
-#     # "Long calendar and cycle life - 15 years and 2500 for 100% depth-of-discharge (DOD)
-#     # or 4500 for 90% DOD or 6500 for 65% DOD, etc."
-#     battery_min_discharge_time=6,
-#     battery_efficiency=0.75,
-# )
+# This has been used as the preferred battery prices since 2016-01-27
+inflate_2010 = (1.0+args["inflation_rate"])**(args["base_financial_year"]-2010)
+args.update(
+    battery_capital_cost_per_mwh_capacity=inflate_2010*3200.0*1000/6,
+    battery_n_cycles=4500,
+    battery_max_discharge=0.85,
+    # DOD not specified;
+    # https://en.wikipedia.org/wiki/Sodium-sulfur_battery says 'Lifetime of 2,500 cycles at 100% depth of discharge (DOD), or 4,500 cycles at 80% DOD';
+    # brochure cited by wikipedia at http://web.archive.org/web/20060205153231/http://www.ulvac-uc.co.jp/prm/prm_arc/049pdf/ulvac049-02.pdf gives 4,500 cycles at 85% DOD.
+    # this article says "Lifetime of 2,500 cycles (at 100% DOD - depth of discharge), or 4,500 cycles (at 80% DOD)":
+    # http://www.rellpower.com/wp/wp-content/uploads/2015/07/Ioxus-The-Case-for-Sodium-Sulfur-Batters-and-Ultracapacitors.pdf
+    # Bito (NGK Insulators), 2005, "Overview of the Sodium-Sulfur Battery for the
+    # IEEE Stationary Battery Committee", http://dx.doi.org/10.1109/PES.2005.1489556 says
+    # "Long calendar and cycle life - 15 years and 2500 for 100% depth-of-discharge (DOD)
+    # or 4500 for 90% DOD or 6500 for 65% DOD, etc."
+    battery_min_discharge_time=6,
+    battery_efficiency=0.75,
+)
 
 # Data for Tesla PowerWall from https://www.teslamotors.com/powerwall
 # assuming 10 years * 365 cycles/year = 3650 cycle life
