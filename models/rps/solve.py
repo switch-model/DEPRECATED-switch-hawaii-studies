@@ -65,9 +65,9 @@ def main():
     parser.add_argument('--ph_mw', type=float)
     parser.add_argument('--biofuel_limit', type=float)
     parser.add_argument('--dr_shares', nargs='+', type=float)
-    parser.add_argument('--ev_flat', action='store_true')
-    # TODO: --ev_flat only works from the command line, not the scenarios_to_run file;
-    # this needs to be fixed, but for now you can just call python solve.py --ev_flat to force it.
+    parser.add_argument('--ev_flat', action='store_true', default=None) 
+    # Note: ev_flat has to have None as default, otherwise it's always considered to be set 
+    # True or False on the command line and that overrides the scenario definitions.
     
     cmd_line_args = scenarios.cmd_line_args()
 
@@ -147,6 +147,9 @@ def solve(
     switch_model = define_AbstractModel(*modules)
     switch_model.iis = Suffix(direction=Suffix.IMPORT)
     switch_model.dual = Suffix(direction=Suffix.IMPORT)
+    
+    # TODO: put scenario flags into a switch_model.config dictionary and then
+    # do the following model modifications within the respective modules.
     
     # force construction of a fixed amount of pumped hydro
     if ph_mw is not None:
