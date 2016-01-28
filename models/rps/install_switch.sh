@@ -15,4 +15,4 @@ cd switch-hawaii-core
 git checkout 14726eab6b11ae2ea1cef188d1e602a246805f25
 cd ..
 
-echo "switch and switch-hawaii-core repostories have been installed"
+echo "switch and switch-hawaii-core repositories have been installed"
