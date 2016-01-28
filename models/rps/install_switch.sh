@@ -3,7 +3,7 @@
 # this script will install compatible versions of the switch and switch-hawaii-core repositories
 # in subdirectories under this one
 
-# currently, this installs the versions that were used for Matthias Fripp's 100% renewables white paper on 1/15/16.
+# currently, this installs the versions that were used for Matthias Fripp's 100% renewables white paper on 2016-01-15.
 
 git clone https://github.com/switch-model/switch/switch
 cd switch
