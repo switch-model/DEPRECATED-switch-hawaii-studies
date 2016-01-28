@@ -1,4 +1,4 @@
-#!/usr/bin/env python 
+#!/usr/bin/env python
 
 import sys, os
 from textwrap import dedent
@@ -17,9 +17,9 @@ import scenario_data, scenarios
 # (--scenario does this already)
 
 scenario_list = [
-    '--scenario_name 100_biofuel_0_dr --biofuel_limit 1.00 -n hydrogen -n demand_response_simple --flat_ev',
-    '--scenario_name 5_biofuel_0_dr --biofuel_limit 0.05 -n hydrogen -n demand_response_simple --flat_ev',
-    '--scenario_name 5_biofuel_hydrogen_0_dr --biofuel_limit 0.05 -n demand_response_simple --flat_ev',
+    '--scenario_name 100_biofuel_0_dr --biofuel_limit 1.00 -n hydrogen -n demand_response_simple --ev_flat',
+    '--scenario_name 5_biofuel_0_dr --biofuel_limit 0.05 -n hydrogen -n demand_response_simple --ev_flat',
+    '--scenario_name 5_biofuel_hydrogen_0_dr --biofuel_limit 0.05 -n demand_response_simple --ev_flat',
 
     '--scenario_name 5_biofuel_hydrogen --biofuel_limit 0.05',
     '--scenario_name 100_biofuel --biofuel_limit 1.00 -n hydrogen',
@@ -31,7 +31,7 @@ scenario_list_extra = [
     # --scenario_name new_100_ph_100_biofuel --ph_mw 100 --biofuel_limit 1.00 -n hydrogen
     # --scenario_name new_100_ph_5_biofuel --ph_mw 100 --biofuel_limit 0.05 -n hydrogen
     # --scenario_name new_100_ph_5_biofuel_hydrogen --ph_mw 100 --biofuel_limit 0.05
-    # --scenario_name new_100_ph_100_biofuel_0_dr --ph_mw 100 --biofuel_limit 1.00 -n hydrogen --dr_shares 0.0 --flat_ev
+    # --scenario_name new_100_ph_100_biofuel_0_dr --ph_mw 100 --biofuel_limit 1.00 -n hydrogen --dr_shares 0.0 --ev_flat
     # --scenario_name new_100_ph_100_biofuel_hydrogen --ph_mw 100 --biofuel_limit 1.00
     
     '--scenario_name base',
