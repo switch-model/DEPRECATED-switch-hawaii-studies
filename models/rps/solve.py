@@ -39,7 +39,7 @@ opt.options['iisfind'] = 1
 
 # relax the integrality constraints, to allow commitment constraints to match up with 
 # number of units available
-opt.options['mipgap'] = 0.001
+opt.options['mipgap'] = 0.01
 # display more information during solve
 opt.options['display'] = 1
 opt.options['bardisplay'] = 1
@@ -226,14 +226,12 @@ def solve(
             switch_instance.demand_response_max_share = dr_share
             switch_instance.preprocess()
     
-        log("solving model with max DR={dr}...\n".format(dr=dr_share)); tic()
+        log("solving model with max DR={dr}...\n".format(dr=dr_share))
 
         # make sure the minimum-cost objective is in effect
         switch_instance.Smooth_Free_Variables.deactivate()
         switch_instance.Minimize_System_Cost.activate()
         results = _solve(switch_instance)
-
-        log("Solver finished; "); toc()
 
         if results.solver.termination_condition == TerminationCondition.infeasible:
             print "Model was infeasible; Irreducible Infeasible Set (IIS) returned by solver:"
@@ -241,6 +239,15 @@ def solve(
             if util.interactive_session:
                 print "Unsolved model is available as switch_instance."
             raise RuntimeError("Infeasible model")
+
+
+        append_batch_results(switch_instance, scenario=tag+'_unsmooth')
+        
+        if len(dr_shares) > 1:
+            t = ("" if tag is None else str(tag) + '_') + 'dr_share_' + str(dr_share)
+        else:
+            t = tag
+        write_results(switch_instance, tag=t+'_unsmooth')
 
         # Freeze all direct-cost variables, and then solve the model against a smoothing objective instead of a cost objective.
         old_duals = [
@@ -251,7 +258,7 @@ def solve(
         switch_instance.Minimize_System_Cost.deactivate()
         switch_instance.Smooth_Free_Variables.activate()
         switch_instance.preprocess()
-        log("smoothing free variables...\n"); tic()
+        log("smoothing free variables...\n")
         results = _solve(switch_instance)
         # restore hourly duals from the original solution
         for (z, t, d) in old_duals:
@@ -311,8 +318,11 @@ def append_tag(text, tag):
 
 def _solve(m):
     """Solve instance of switch model, using the specified objective, then load the results"""
+
+    tic()
     results = opt.solve(m, keepfiles=False, tee=True,
         symbolic_solver_labels=True, suffixes=['dual', 'iis'])
+    log("Solver finished; "); toc()
 
     # results.write()
     log("loading solution... "); tic()
@@ -367,6 +377,8 @@ def summary_headers(m, scenario):
         +tuple('cost_per_kwh_'+str(p) for p in m.PERIODS)
         +((("renewable_share_all_years",) + tuple('renewable_share_'+str(p) for p in m.PERIODS))
             if hasattr(m, 'RPSEligiblePower') else tuple())
+        +((("biofuel_share_all_years",) + tuple('biofuel_share_'+str(p) for p in m.PERIODS))
+            if hasattr(m, 'RPSEligiblePower') else tuple())
     )
     
 def summary_values(m, scenario):
@@ -413,6 +425,13 @@ def summary_values(m, scenario):
         )
         # renewable share during each period
         values.extend([m.RPSEligiblePower[p]/m.RPSTotalPower[p] for p in m.PERIODS])
+        # total biofuel share over all periods
+        values.append(
+            sum(m.RPSFuelPower[p] for p in m.PERIODS)
+            /sum(m.RPSTotalPower[p] for p in m.PERIODS)
+        )
+        # biofuel share during each period
+        values.extend([m.RPSFuelPower[p]/m.RPSTotalPower[p] for p in m.PERIODS])
 
     return values
     
@@ -441,37 +460,6 @@ def write_results(m, tag=None):
         tag = "_"+str(tag)
     else:
         tag = ""
-
-    # needed temporarily, to figure out how non-EV costs are affecting the reported costs per kWh
-    # (Ack!)
-    # (never actually used, because it turned out the EV scenarios were using twice as much power
-    # as they should anyway, and then I dropped the extra ev costs from the obj fn)
-    # demand_components = [c for c in ('lz_demand_mw', 'DemandResponse', 'ChargeEVs') if hasattr(m, c)]
-    # util.write_table(m, m.PERIODS,
-    #     output_file=os.path.join(output_dir, "ev_extra_costs{t}.tsv".format(t=tag)),
-    #     headings=("period", "load_zone", "extra_vehicle_costs"),
-    #     values=lambda m, p: (
-    #         p,
-    #         # code from SystemCostPerPeriod in financials.py
-    #         sum(
-    #             getattr(m, annual_cost)[p]
-    #             for annual_cost in ['ev_extra_annual_cost', 'ice_fuel_cost']
-    #         )
-    #         *
-    #         # Conversion to lump sum at beginning of period
-    #         uniform_series_to_present_value(
-    #             m.discount_rate, m.period_length_years[p]) *
-    #         # Conversion to base year
-    #         future_to_present_value(
-    #             m.discount_rate, (m.period_start[p] - m.base_financial_year))
-    #         / sum(
-    #             m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
-    #             sum(getattr(m, c)[lz, t] for c in demand_components for lz in m.LOAD_ZONES)
-    #             for t in m.PERIOD_TPS[p]
-    #         )
-    #     )
-    # )
-    
         
     util.write_table(m, 
         output_file=os.path.join(output_dir, "summary{t}.tsv".format(t=tag)), 
@@ -563,6 +551,99 @@ def write_results(m, tag=None):
             battery_capacity_mw(m, z, pe)
         )
     )
+    
+    def cost_breakdown_details(m, z, pe):
+        values = [z, pe]
+        # capacity built, conventional plants
+        values += [
+            sum(
+                m.BuildProj[pr, pe] 
+                    for pr in built_proj 
+                        if m.proj_gen_tech[pr] == t and m.proj_load_zone[pr] == z and (pr, pe) in m.BuildProj
+            )
+            for t in built_tech
+        ]
+        # capacity built, batteries, MW and MWh
+        if hasattr(m, "BuildBattery"):
+            values.extend([
+                m.BuildBattery[z, pe]/m.battery_min_discharge_time, 
+                m.BuildBattery[z, pe]
+            ])
+        else:
+            values.append([0.0, 0.0])
+        # capacity built, hydro
+        values.append(
+            sum(
+                m.BuildPumpedHydroMW[pr, pe] 
+                    for pr in m.PH_PROJECTS if m.ph_load_zone[pr]==z
+            ) if hasattr(m, "BuildPumpedHydroMW") else 0.0,
+        )
+        # capacity built, hydrogen
+        if hasattr(m, "BuildElectrolyzerMW"):
+            values.extend([
+                m.BuildElectrolyzerMW[z, pe],
+                m.BuildLiquifierKgPerHour[z, pe],
+                m.BuildLiquidHydrogenTankKg[z, pe],
+                m.BuildFuelCellMW[z, pe]
+            ])
+        else:
+            values.extend([0.0, 0.0, 0.0, 0.0])
+        
+        # capital investments
+        # regular projects
+        values += [
+            sum(
+                m.BuildProj[pr, pe] * (m.proj_overnight_cost[pr, pe] + m.proj_connect_cost_per_mw[pr])
+                    for pr in built_proj 
+                        if m.proj_gen_tech[pr] == t and m.proj_load_zone[pr] == z and (pr, pe) in m.PROJECT_BUILDYEARS
+            )
+            for t in built_tech
+        ]
+        # batteries
+        values.append(m.BuildBattery[z, pe] * m.battery_capital_cost_per_mwh_capacity if hasattr(m, "BuildBattery") else 0.0)
+        # hydro
+        values.append(
+            sum(
+                m.BuildPumpedHydroMW[pr, pe] * m.ph_capital_cost_per_mw[pr]
+                    for pr in m.PH_PROJECTS if m.ph_load_zone[pr]==z
+            ) if hasattr(m, "BuildPumpedHydroMW") else 0.0,
+        )
+        # hydrogen
+        if hasattr(m, "BuildElectrolyzerMW"):
+            values.extend([
+                m.BuildElectrolyzerMW[z, pe] * m.hydrogen_electrolyzer_capital_cost_per_mw,
+                m.BuildLiquifierKgPerHour[z, pe] * m.hydrogen_liquifier_capital_cost_per_kg_per_hour,
+                m.BuildLiquidHydrogenTankKg[z, pe] * m.liquid_hydrogen_tank_capital_cost_per_kg,
+                m.BuildFuelCellMW[z, pe] * m.hydrogen_fuel_cell_capital_cost_per_mw
+            ])
+        else:
+            values.extend([0.0, 0.0, 0.0, 0.0])
+
+        # _annual_ fuel expenditures
+        if hasattr(m, "REGIONAL_FUEL_MARKET"):
+            values.extend([
+                sum(m.FuelConsumptionByTier[rfm_st] * m.rfm_supply_tier_cost[rfm_st] for rfm_st in m.RFM_P_SUPPLY_TIERS[rfm, pe])
+                    for rfm in m.REGIONAL_FUEL_MARKET
+            ])
+        # costs to expand fuel markets (this could later be disaggregated by market and tier)
+        if hasattr(m, "RFM_Fixed_Costs_Annual"):
+            values.append(m.RFM_Fixed_Costs_Annual[pe])
+        # TODO: add similar code for fuel_costs module instead of fuel_markets module
+        
+        return values
+        
+    util.write_table(m, m.LOAD_ZONES, m.PERIODS, 
+        output_file=os.path.join(output_dir, "cost_breakdown{t}.tsv".format(t=tag)),
+        headings=("load_zone", "period") + tuple(t+"_mw_added" for t in built_tech)
+            + ("batteries_mw_added", "batteries_mwh_added", "hydro_mw_added") 
+            + ("h2_electrolyzer_mw_added", "h2_liquifier_kg_per_hour_added", "liquid_h2_tank_kg_added", "fuel_cell_mw_added")
+            + tuple(t+"_overnight_cost" for t in built_tech) + ("batteries_overnight_cost", "hydro_overnight_cost")
+            + ("h2_electrolyzer_overnight_cost", "h2_liquifier_overnight_cost", "liquid_h2_tank_overnight_cost", "fuel_cell_overnight_cost")
+            + (tuple(rfm+"_annual_cost" for rfm in m.REGIONAL_FUEL_MARKET) if hasattr(m, "REGIONAL_FUEL_MARKET") else ())
+            + (("fuel_market_expansion_annual_cost",) if hasattr(m, "RFM_Fixed_Costs_Annual") else ()),
+        values=cost_breakdown_details
+    )
+    
     # util.write_table(m, m.PERIODS,
     #     output_file=os.path.join(output_dir, "capacity{t}.tsv".format(t=t)),
     #     headings=("period",)+built_proj,
