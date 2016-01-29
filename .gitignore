@@ -1,3 +1,4 @@
+# ignore nuisance files
 *.ipynb
 *.pyc
 ~$*.xlsx
@@ -6,16 +7,30 @@
 .idea
 .DS_Store
 gurobi.log
-inputs/
-outputs/
-inputs_*/
-outputs_*/
+
+# include standard inputs, testing inputs and scenario definititions 
+# but not renamed (locally archived) versions of these
+inputs*/
+!inputs/
+!inputs_tiny/
+scenarios_to_run*.txt
+!scenarios_to_run.txt
+# ignore outputs (uses can make their own)
+outputs*/
+
+# ignore log files
 runfile*.txt
 completed_scenarios*.txt
-scenarios_to_run*.txt
 progress*.txt
-Fuel Costs Monte Carlo-3.xlsx
+
+# ignore pha input files (developers can make their own)
+pha/
 
 # folders cloned from other repositories
 switch/
 switch-hawaii-core/
+
+# files to large for git (users can create their own)
+models/pumped_hydro/inputs/variable_capacity_factors.tab
+models/oahu_2007_dr/inputs/old_variable_capacity_factors.tab
+
