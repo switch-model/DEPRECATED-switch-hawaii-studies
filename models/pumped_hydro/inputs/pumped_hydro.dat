@@ -1,0 +1,6 @@
+param pumped_hydro_max_capacity_mw := 1000;
+param pumped_hydro_fixed_om_percent := 0.015;
+param pumped_hydro_project_life := 50;
+param pumped_hydro_capital_cost_per_mw := 3033333.33333;
+param pumped_hydro_inflow_mw := 10;
+param pumped_hydro_efficiency := 0.8;
