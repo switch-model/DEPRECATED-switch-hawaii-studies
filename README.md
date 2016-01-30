@@ -64,6 +64,8 @@ from "completed_scenarios.txt" and run `python solve.py` again. Or you can just 
 `python solve.py --scenario_name <new_scenario>` followed (optionally) by command line arguments 
 to change the scenario. You can see examples of command-line arguments in scenarios_to_run.txt
 
-For testing purposes, it is helpful to use the "inputs_tiny" directory, via a command like 
-`python solve.py --scenario_name test --inputs inputs_tiny`
+For testing purposes, it is helpful to use the "inputs_tiny" directory, via a command like this:
+```
+python solve.py --scenario_name test --inputs inputs_tiny
+```
 
