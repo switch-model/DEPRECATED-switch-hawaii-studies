@@ -3,9 +3,9 @@ Data and code for Hawaii version of SWITCH
 
 #INSTALLATION
 
-INSTALL PYTHON (2.x) AND PYOMO
+INSTALL PYTHON AND PYOMO
 
-Python: On recent Mac or Linux systems, a suitable version of Python should already be installed. On Windows, you should download the binary installer from https://www.python.org/downloads/windows/ . If installing on Windows, choose the options to change system settings (this adds the python commands to your command-line path) and to install pip.
+Python: On recent Mac or Linux systems, a suitable version of Python should already be installed (SWITCH needs one of the 2.7 versions). On Windows, you should download the binary installer from https://www.python.org/downloads/windows/ . If installing on Windows, choose the options to change system settings (this adds the python commands to your command-line path) and to install pip.
 
 Pyomo: Once Python is installed go to a terminal window (Terminal.app on a Mac; Windows-R, then cmd on Windows). Then on Mac or Linux execute "sudo -H pip install pyomo". On Windows execute "pip install pyomo".
 
