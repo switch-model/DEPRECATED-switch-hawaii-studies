@@ -21,7 +21,7 @@ If you want to use a previous version of the model and data, you should checkout
 ```
 git checkout <version>
 ```
-The current options for `<version>` are "v2016-01-15-data" and "v2016-01-28". You can skip this command or use "git checkout master" to use the latest version of SWITCH.
+The current options for `<version>` are `v2016-01-15-data` and `v2016-01-28`. You can skip this command or use `git checkout master` to use the latest version of SWITCH.
 
 On a Mac or Linux system, execute these commands:
 ```
