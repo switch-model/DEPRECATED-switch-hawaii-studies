@@ -3,14 +3,17 @@
 # this script will install the switch and switch-hawaii-core repositories
 # in subdirectories under this one
 
+# this restores the version used for Matthias Fripp's presentation to the EUCI conference
+# on 2016-01-28.
+
 git clone https://github.com/switch-model/switch.git
 cd switch
-# git checkout 7c7a7dc582d0949db89a3eac3e49fbfb29e9c673 # for 2016-01-15 paper
+git checkout 322f065345b4b7bb6d9d36914f3b47776a10fa1c
 cd ..
 
 git clone https://github.com/switch-model/switch-hawaii-core.git
 cd switch-hawaii-core
-# git checkout 14726eab6b11ae2ea1cef188d1e602a246805f25 # for 2016-01-15 paper
+git checkout 9e067d9912b173d695028e317824b82b7a03a553
 cd ..
 
 echo "switch and switch-hawaii-core repositories have been installed"
