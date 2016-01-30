@@ -9,7 +9,7 @@ Python: On recent Mac or Linux systems, a suitable version of Python should alre
 
 Pyomo: Once Python is installed go to a terminal window (Terminal.app on a Mac; Windows-R, then cmd on Windows). Then on Mac or Linux execute "sudo -H pip install pyomo". On Windows execute "pip install pyomo".
 
-###INSTALL SWITCH.
+###INSTALL SWITCH
 
 It is recommended that you install the git command line tool on your system and then follow Option 1 below. Alternatively you can install the latest version by following Option 2 below.
 
@@ -18,10 +18,10 @@ It is recommended that you install the git command line tool on your system and 
 In a terminal window, use the cd command to switch to the folder where you want to install SWITCH-Hawaii. Then execute "git clone https://github.com/switch-model/switch-hawaii-studies.git"
 
 If you want to use a previous version of the model and data, you should checkout the version you want from the repository you have just created. Do this with a command like this:
-
+```
 git checkout <version>
-
-The current options for <version> are "v2016-01-15-data" and "v2016-01-28". You can skip this command or use "git checkout master" to use the latest version of SWITCH.
+```
+The current options for `<version>` are "v2016-01-15-data" and "v2016-01-28". You can skip this command or use "git checkout master" to use the latest version of SWITCH.
 
 On a Mac or Linux system, execute these commands:
 ```
@@ -57,7 +57,13 @@ python solve.py
 ```
 Inputs will be read from the inputs directory, and outputs will be written to the outputs directory. 
 
-"scenarios_to_run.txt" defines the scenarios that should be run. "completed_scenarios.txt" is a list of scenarios that have already been run. To re-run a scenario that has already been run, you can remove it from "completed_scenarios.txt" and run "python solve.py" again. Or you can just execute "python solve.py --scenario <scenario name>". You can also run ad hoc scenarios by specifying "python solve.py --scenario_name <new_scenario>" followed (optionally) by command line arguments to change the scenario. You can see examples of command-line arguments in scenarios_to_run.txt
+"scenarios_to_run.txt" defines the scenarios that should be run. "completed_scenarios.txt" is a list of 
+scenarios that have already been run. To re-run a scenario that has already been run, you can remove it 
+from "completed_scenarios.txt" and run `python solve.py` again. Or you can just execute 
+`python solve.py --scenario <scenario name>`. You can also run ad hoc scenarios by specifying 
+`python solve.py --scenario_name <new_scenario>` followed (optionally) by command line arguments 
+to change the scenario. You can see examples of command-line arguments in scenarios_to_run.txt
 
-For testing purposes, it is helpful to use the "inputs_tiny" directory, via a command like "python solve.py --scenario_name test --inputs inputs_tiny"
+For testing purposes, it is helpful to use the "inputs_tiny" directory, via a command like 
+`python solve.py --scenario_name test --inputs inputs_tiny`
 
