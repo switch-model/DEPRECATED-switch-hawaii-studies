@@ -1,4 +1,4 @@
-# switch-hawaii
+# switch-hawaii-studies
 Data and code for Hawaii version of SWITCH
 
 ##INSTALLATION
