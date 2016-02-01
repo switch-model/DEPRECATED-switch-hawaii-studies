@@ -392,12 +392,12 @@ def summary_values(m, scenario):
     ])
     
     # total cost (all periods)
-    values.append(m.Minimize_System_Cost)
+    values.append(m.Minimize_System_Cost.expr)
 
     # NPV of total cost / NPV of kWh generated (equivalent to spreading 
     # all costs uniformly over all generation)
     values.append(
-        m.Minimize_System_Cost
+        m.Minimize_System_Cost.expr
         / sum(
             m.bring_timepoint_costs_to_base_year[t] * 1000.0 *
             sum(getattr(m, c)[lz, t] for c in demand_components for lz in m.LOAD_ZONES)
