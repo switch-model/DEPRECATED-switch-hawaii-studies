@@ -69,3 +69,5 @@ For testing purposes, it is helpful to use the "inputs_tiny" directory, via a co
 python solve.py --scenario_name test --inputs inputs_tiny
 ```
 
+##SUPPORT
+If you need help installing or running SWITCH-Hawaii or defining new scenarios, please contact Matthias Fripp at the University of Hawaii at <mfripp@hawaii.edu>.
