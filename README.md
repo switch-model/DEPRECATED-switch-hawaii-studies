@@ -5,13 +5,54 @@ Data and code for Hawaii version of SWITCH
 
 ###INSTALL PYTHON AND PYOMO
 
-Python: On recent Mac or Linux systems, a suitable version of Python should already be installed (SWITCH needs one of the 2.7 versions). On Windows, you should download the binary installer from https://www.python.org/downloads/windows/ . If installing on Windows, choose the options to change system settings (this adds the python commands to your command-line path) and to install pip.
+Python: On recent Mac or Linux systems, a suitable version of Python should already be installed (SWITCH needs one of the 2.7 versions). On Windows, you should download the binary installer from https://www.python.org/downloads/windows/ . If installing on Windows, choose the options to install pip and "Add Python.exe to path".
 
 Pyomo: Once Python is installed go to a terminal window (Terminal.app on a Mac; Windows-R, then cmd on Windows). Then on Mac or Linux execute "sudo -H pip install pyomo". On Windows execute "pip install pyomo".
 
+###INSTALL A SOLVER
+
+SWITCH uses Pyomo to create standard matrices defining the numerical optimization model to be solved. 
+Then it uses standard solvers to solve these models. 
+
+CPLEX or GUROBI are high-performance solvers which are available from their developers at no cost for 
+academic users. GLPK is an open-source solver which is free for any user. 
+
+**On Linux,** glpk can be installed via
+```
+sudo yum install -y glpk glpk-utils
+```
+or 
+```
+sudo apt-get install -y glpk glpk-utils
+```
+
+**On a Mac,** the easiest way to install glpk and other unix-style software is via the Homebrew package manager. 
+If you don't want to install Homebrew, you can replace the following steps with instructions from 
+http://hichenwang.blogspot.com/2011/08/fw-installing-glpk-on-mac.html .
+
+Install homebrew package manager by typing the following command in a Terminal window (more details at brew.sh):
+
+```
+ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+```
+Press Return when prompted, and enter your password when prompted.
+
+Next, you can install glpk itself by typing the following commands in a Terminal window:
+```
+brew install git
+brew install homebrew/science/glpk
+``` 
+
+**On Windows,** glpk can be installed as follows:
+
+1. Download the Windows version of glpk from http://sourceforge.net/projects/winglpk/ . 
+2. Open the .zip file you downloaded and look in the W32 or W64 folder (depending whether you have a 32-bit or 64-bit version of Windows). 
+3. Copy glpsol.exe and glpk_n_nn.dll from this folder to C:\Python27\Scripts . (n_nn is the glpk version number, e.g., 4_57)
+
 ###INSTALL SWITCH
 
-It is recommended that you install the git command line tool on your system and then follow Option 1 below. Alternatively you can install the latest version by following Option 2 below.
+It is recommended that you install the git command line tool on your system and then follow Option 1 below. 
+Alternatively you can install the latest version by following Option 2 below.
 
 ####Option 1
 
@@ -31,23 +72,38 @@ cd switch-hawaii-studies/models/rps
 On Windows, execute these commands:
 ```
 cd switch-hawaii-studies\models\rps
-[then copy the "git clone ..." commands from install_switch.sh and run them from the commadn line]
+[then copy the "git clone ..." commands from install_switch.sh and run them from the command line]
 ```
 ####Option 2
 
-Download the repository from https://github.com/switch-model/switch-hawaii-studies/archive/master.zip and decompress it into a suitable location. Make a note of the name of the folder you have created ("switch-hawaii-studies" is a good name).
+Download the repository from https://github.com/switch-model/switch-hawaii-studies/archive/master.zip. 
+Copy the "switch-hawaii-studies-master" folder from this zip archive to a suitable location (e.g., My Documents) 
+and then rename it to switch-hawaii-studies. Make a note of the name and location of the folder you have created.
 
-Download the repository from https://github.com/switch-model/switch/archive/master.zip and decompress it into a folder called "switch". Place this folder inside the "models/rps" folder within the "switch-hawaii-studies" folder that you just created.
+Download the repository from https://github.com/switch-model/switch/archive/master.zip. Copy the "switch-master"
+folder from inside this zip archive into the "models/rps" folder within the "switch-hawaii-studies" folder that 
+you just created. Rename "switch-master" to "switch".
 
-Download the repository from https://github.com/switch-model/switch-hawaii-core/archive/master.zip and decompress it into a folder called "switch-hawaii-core". Place this folder inside the "models/rps" folder within the "switch-hawaii-studies" folder that you just created.
+Download the repository from https://github.com/switch-model/switch-hawaii-core/archive/master.zip. Copy the
+"switch-hawaii-core-master" folder from inside this zip archive into the "models/rps" folder within the 
+"switch-hawaii-studies" folder. Rename "switch-hawaii-core-master" to "switch-hawaii-core".
 
-###INSTALL A SOLVER
 
-SWITCH creates standard matrices defining the numerical optimization model to be solved. Then it uses standard solvers to solve these models. 
-
-CPLEX or GUROBI are high-performance solvers which are available from their developers at no cost for academic users. GLPK is an open-source solver which is free for any user. 
-
-Please see https://github.com/switch-model/switch/blob/master/INSTALL for information on installing a solver.
+Whether you followed Option 1 or Option 2, you should now have a directory structure like this (it will have 
+other files too, but these are most of the important ones):
+```
+switch-hawaii-studies/
+    data/
+    models/
+        rps/
+            inputs/
+            inputs_tiny/
+            scenarios_to_run.txt
+            solve.py
+            switch/
+                switch_mod/
+            switch-hawaii-core/
+```
 
 ###RUN SWITCH
 
