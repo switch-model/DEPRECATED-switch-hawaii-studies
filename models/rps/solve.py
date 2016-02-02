@@ -33,20 +33,26 @@ add_relative_path('.') # components for this particular study
 
 # add_relative_path('..', 'pumped_hydro') # components reused from the pumped_hydro study
 
-opt = SolverFactory("cplex", solver_io="nl")
-# tell cplex to find an irreducible infeasible set (and report it)
-opt.options['iisfind'] = 1
+solver = "glpk"   # glpk or cplex
 
-# relax the integrality constraints, to allow commitment constraints to match up with 
-# number of units available
-opt.options['mipgap'] = 0.01
-# display more information during solve
-opt.options['display'] = 1
-opt.options['bardisplay'] = 1
-opt.options['mipdisplay'] = 2
-opt.options['primalopt'] = ""   # this is how you specify single-word arguments
-opt.options['advance'] = 2
-#opt.options['threads'] = 1
+if solver == "glpk":
+    opt = SolverFactory(solver)
+
+if solver == "cplex":
+    opt = SolverFactory(solver, solver_io="nl")
+    # tell cplex to find an irreducible infeasible set (and report it)
+    opt.options['iisfind'] = 1
+
+    # relax the integrality constraints, to allow commitment constraints to match up with 
+    # number of units available
+    opt.options['mipgap'] = 0.01
+    # display more information during solve
+    opt.options['display'] = 1
+    opt.options['bardisplay'] = 1
+    opt.options['mipdisplay'] = 2
+    opt.options['primalopt'] = ""   # this is how you specify single-word arguments
+    opt.options['advance'] = 2
+    #opt.options['threads'] = 1
 
 # define global variables for convenient access in interactive session
 switch_model = None
@@ -247,25 +253,29 @@ def solve(
             t = ("" if tag is None else str(tag) + '_') + 'dr_share_' + str(dr_share)
         else:
             t = tag
-        write_results(switch_instance, tag=t+'_unsmooth')
 
-        # Freeze all direct-cost variables, and then solve the model against a smoothing objective instead of a cost objective.
-        old_duals = [
-            (z, t, switch_instance.dual[switch_instance.Energy_Balance[z, t]])
-                for z in switch_instance.LOAD_ZONES
-                    for t in switch_instance.TIMEPOINTS]
-        fix_obj_expression(switch_instance.Minimize_System_Cost)
-        switch_instance.Minimize_System_Cost.deactivate()
-        switch_instance.Smooth_Free_Variables.activate()
-        switch_instance.preprocess()
-        log("smoothing free variables...\n")
-        results = _solve(switch_instance)
-        # restore hourly duals from the original solution
-        for (z, t, d) in old_duals:
-           switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
-        # unfix the variables
-        fix_obj_expression(switch_instance.Minimize_System_Cost, False)
-        log("finished smoothing free variables; "); toc()
+        if solver == "cplex":
+            # Freeze all direct-cost variables, and then solve the model against 
+            # a smoothing objective instead of a cost objective.
+            # (only applied for quadratic solvers, i.e., cplex)
+            write_results(switch_instance, tag=t+'_unsmooth')   # keep pre-smoothing results, in case smoothing crashes
+
+            old_duals = [
+                (z, t, switch_instance.dual[switch_instance.Energy_Balance[z, t]])
+                    for z in switch_instance.LOAD_ZONES
+                        for t in switch_instance.TIMEPOINTS]
+            fix_obj_expression(switch_instance.Minimize_System_Cost)
+            switch_instance.Minimize_System_Cost.deactivate()
+            switch_instance.Smooth_Free_Variables.activate()
+            switch_instance.preprocess()
+            log("smoothing free variables...\n")
+            results = _solve(switch_instance)
+            # restore hourly duals from the original solution
+            for (z, t, d) in old_duals:
+               switch_instance.dual[switch_instance.Energy_Balance[z, t]] = d
+            # unfix the variables
+            fix_obj_expression(switch_instance.Minimize_System_Cost, False)
+            log("finished smoothing free variables; "); toc()
 
         if util.interactive_session:
             print "Model solved successfully."
@@ -509,7 +519,8 @@ def write_results(m, tag=None):
                     for component in m.LZ_Energy_Components_Produce)
             +tuple(sum(getattr(m, component)[lz, t] for lz in m.LOAD_ZONES)
                     for component in m.LZ_Energy_Components_Consume)
-            +(m.dual[m.Energy_Balance[z, t]]/m.bring_timepoint_costs_to_base_year[t],
+            +(get(m.dual, m.Energy_Balance[z, t], 0.0)/m.bring_timepoint_costs_to_base_year[t], 
+                # note: this uses 0.0 if no dual available, i.e., with glpk solver
             'peak' if m.ts_scale_to_year[m.tp_ts[t]] < avg_ts_scale else 'typical')
     )
     
