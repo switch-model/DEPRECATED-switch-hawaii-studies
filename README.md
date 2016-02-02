@@ -58,11 +58,17 @@ Alternatively you can install the latest version by following Option 2 below.
 
 In a terminal window, use the cd command to switch to the folder where you want to install SWITCH-Hawaii. Then execute "git clone https://github.com/switch-model/switch-hawaii-studies.git"
 
-If you want to use a previous version of the model and data, you should checkout the version you want from the repository you have just created. Do this with a command like this:
+If you want to use a previous version of the model and data, you should checkout the version you want from the repository 
+you have just created. Do this with a command like this:
 ```
 git checkout <version>
 ```
-The current options for `<version>` are `v2016-01-15-data` and `v2016-01-28`. You can skip this command or use `git checkout master` to use the latest version of SWITCH.
+The current options for `<version>` are `v2016-01-15-data` and `v2016-01-28`. You can skip this command or use 
+`git checkout master` to use the latest version of SWITCH. 
+
+Please note: versions of SWITCH-Hawaii from before 2016-02-01 are currently only compatible with Pyomo 4.1 and 
+the cplex solver. Please contact Matthias Fripp at UH (<mfripp@hawaii.edu>) if you would like to run earlier 
+versions of SWITCH-Hawaii with Pyomo 4.2 (the latest version) or the glpk solver.
 
 On a Mac or Linux system, execute these commands:
 ```
