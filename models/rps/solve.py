@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import sys, os, time, fcntl
+import sys, os, time
 import pdb, traceback
 
 from pyomo.environ import *
