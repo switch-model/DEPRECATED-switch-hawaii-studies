@@ -13,7 +13,7 @@ cd ..
 
 git clone https://github.com/switch-model/switch-hawaii-core.git
 cd switch-hawaii-core
-git checkout 9e067d9912b173d695028e317824b82b7a03a553
+git checkout b9b14ea20f148dca0347ac4761f841bf0e31f84e
 cd ..
 
 echo "switch and switch-hawaii-core repositories have been installed"
