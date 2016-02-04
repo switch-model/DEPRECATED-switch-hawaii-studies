@@ -53,18 +53,31 @@ def pysp_boundsetter_callback(self, scenario_tree, scenario):
             for k in var:
                 # print "setting bounds for {var}[{k}]".format(var=var_name, k=k)
 
-                # note: as an unofficial alternative to the code below, we could just use
-                # var[k].setlb(lower_bound)
-                # var[k].setub(upper_bound)
+                # import pdb; pdb.set_trace()
+                
+                if var[k].lb is None:
+                    # print "setting lower bound for {var}[{k}]".format(var=var_name, k=k)
+                    var[k].setlb(0.0)
+                # else:
+                #     print "lower bound for {var}[{k}] already set to {b}".format(var=var_name, k=k, b=var[k].lb)
+                    
+                if var[k].ub is None:
+                    # print "setting upper bound for {var}[{k}]".format(var=var_name, k=k)
+                    var[k].setub(float(limit))
+                # else:
+                #     print "upper bound for {var}[{k}] already set to {b}".format(var=var_name, k=k, b=var[k].ub)
 
-                # note: we have to pass a tree node to setVariableBoundsOneScenario.
-                # It doesn't actually use it, so this one is as good as any.
-                tree_node = scenario_tree.findRootNode()
-                # note: getSymbol appears to be inverse of getObject, used in setVariableBoundsAllScenarios
-                var_id = m._ScenarioTreeSymbolMap.getSymbol(var[k]) 
-                # NOTE: contrary to the documentation, this gets called once for every scenario,
-                # so it makes more sense to use setVariableBoundsOneScenario instead of 
-                # setVariableBoundsAllScenarios. Also note: that function doesn't really need
-                # a treenode, but we pass it anyway.
-                self.setVariableBoundsOneScenario(tree_node, scenario, var_id, 0.0, float(limit))
+                # note: the code below seems to be the current official way to do it, but it is unnecessarily complicated
+                # and just does the same as the code above; it may be on the way to deprecation
+
+                # # note: we have to pass a tree node to setVariableBoundsOneScenario.
+                # # It doesn't actually use it, so this one is as good as any.
+                # tree_node = scenario_tree.findRootNode()
+                # # note: getSymbol appears to be inverse of getObject, used in setVariableBoundsAllScenarios
+                # var_id = m._ScenarioTreeSymbolMap.getSymbol(var[k])
+                # # NOTE: contrary to the documentation, this gets called once for every scenario,
+                # # so it makes more sense to use setVariableBoundsOneScenario instead of
+                # # setVariableBoundsAllScenarios. Also note: that function doesn't really need
+                # # a treenode, but we pass it anyway.
+                # self.setVariableBoundsOneScenario(tree_node, scenario, var_id, 0.0, float(limit))
     
