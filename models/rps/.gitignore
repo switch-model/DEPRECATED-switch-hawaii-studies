@@ -1,0 +1,2 @@
+# ignore early tests with pha (some data are still in this dir in case they need later reference)
+pha/

@@ -1,0 +1,181 @@
+Importing model and scenario tree files
+Importing module=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/ReferenceModel.py
+loading model...
+Module successfully loaded
+Time to import model and scenario tree structure files=0.05 seconds
+Scenario Tree Detail
+----------------------------------------------------
+Tree Nodes:
+
+	Name=RootNode
+	Stage=Build
+	Parent=None
+	Conditional probability=1.0000
+	Children:
+		fuel_supply_curves_0000
+		fuel_supply_curves_0001
+		fuel_supply_curves_0002
+		fuel_supply_curves_0003
+	Scenarios:
+		Scenario_0000
+		Scenario_0001
+		Scenario_0002
+		Scenario_0003
+
+	Name=fuel_supply_curves_0000
+	Stage=Operate
+	Parent=RootNode
+	Conditional probability=0.2500
+	Children:
+		None
+	Scenarios:
+		Scenario_0000
+
+	Name=fuel_supply_curves_0001
+	Stage=Operate
+	Parent=RootNode
+	Conditional probability=0.2500
+	Children:
+		None
+	Scenarios:
+		Scenario_0001
+
+	Name=fuel_supply_curves_0002
+	Stage=Operate
+	Parent=RootNode
+	Conditional probability=0.2500
+	Children:
+		None
+	Scenarios:
+		Scenario_0002
+
+	Name=fuel_supply_curves_0003
+	Stage=Operate
+	Parent=RootNode
+	Conditional probability=0.2500
+	Children:
+		None
+	Scenarios:
+		Scenario_0003
+
+----------------------------------------------------
+Stages:
+	Name=Build
+	Tree Nodes: 
+		RootNode
+	Variables: 
+		 BuildAnyPumpedHydro : [*,*] 
+		 BuildBattery : [*,*] 
+		 BuildElectrolyzerMW : [*,*] 
+		 BuildFuelCellMW : [*,*] 
+		 BuildLiquidHydrogenTankKg : [*,*] 
+		 BuildLiquifierKgPerHour : [*,*] 
+		 BuildProj : [*,*] 
+		 BuildPumpedHydroMW : [*,*] 
+		 RFMSupplyTierActivate : [*,*,*] 
+	Cost Variable: 
+		BuildCost
+
+	Name=Operate
+	Tree Nodes: 
+		fuel_supply_curves_0000
+		fuel_supply_curves_0001
+		fuel_supply_curves_0002
+		fuel_supply_curves_0003
+	Variables: 
+		 BaseloadOperatingLevelForPeriod : [*,*] 
+		 BatteryLevel : [*,*] 
+		 ChargeBattery : [*,*] 
+		 ChargeEVs : [*,*] 
+		 DemandResponse : [*,*] 
+		 DischargeBattery : [*,*] 
+		 DispatchFuelCellMW : [*,*] 
+		 DispatchProj : [*,*] 
+		 DumpPower : [*,*] 
+		 FuelConsumptionByTier : [*,*,*] 
+		 FuelConsumptionInMarket : [*,*] 
+		 LiquifyHydrogenKgPerHour : [*,*] 
+		 ProjFuelUseRate : [*,*,*] 
+		 PumpedHydroProjGenerateMW : [*,*] 
+		 PumpedHydroProjStoreMW : [*,*] 
+		 RunElectrolyzerMW : [*,*] 
+		 WithdrawLiquidHydrogenKg : [*,*] 
+	Cost Variable: 
+		OperateCost
+
+----------------------------------------------------
+Scenarios:
+	Name=Scenario_0000
+	Probability=0.2500
+	Leaf node=fuel_supply_curves_0000
+	Tree node sequence:
+		RootNode
+		fuel_supply_curves_0000
+
+	Name=Scenario_0001
+	Probability=0.2500
+	Leaf node=fuel_supply_curves_0001
+	Tree node sequence:
+		RootNode
+		fuel_supply_curves_0001
+
+	Name=Scenario_0002
+	Probability=0.2500
+	Leaf node=fuel_supply_curves_0002
+	Tree node sequence:
+		RootNode
+		fuel_supply_curves_0002
+
+	Name=Scenario_0003
+	Probability=0.2500
+	Leaf node=fuel_supply_curves_0003
+	Tree node sequence:
+		RootNode
+		fuel_supply_curves_0003
+
+----------------------------------------------------
+Scenario tree is valid!
+Node-based instance initialization enabled
+Creating instance for scenario=Scenario_0000
+Node data for scenario=Scenario_0000 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/RootNode.dat
+Node data for scenario=Scenario_0000 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/fuel_supply_curves_0000.dat
+Creating instance for scenario=Scenario_0001
+Node data for scenario=Scenario_0001 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/RootNode.dat
+Node data for scenario=Scenario_0001 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/fuel_supply_curves_0001.dat
+Creating instance for scenario=Scenario_0002
+Node data for scenario=Scenario_0002 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/RootNode.dat
+Node data for scenario=Scenario_0002 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/fuel_supply_curves_0002.dat
+Creating instance for scenario=Scenario_0003
+Node data for scenario=Scenario_0003 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/RootNode.dat
+Node data for scenario=Scenario_0003 partially loading from file=/Users/matthias/Dropbox/Research/Shared/Switch-Hawaii/switch-hawaii-studies/models/rps/inputs_tiny_tiny/pha/fuel_supply_curves_0003.dat
+Time to construct scenario instances=0.54 seconds
+Time link scenario tree with instances=0.04 seconds
+Constructing solver manager of type=serial
+Importing module=pha_bounds_cfg.py
+loading pha_bounds_cfg.py
+Module successfully loaded
+Constructing solver type=cplexamp
+Initializing scenario sub-problem solver with options=['threads=1']
+PH solver configuration: 
+   Max iterations=1000
+   Async mode=False
+   Async buffer length=1
+   Default global rho=10000.0
+   Over-relaxation enabled=False
+   Bound setter callback file=pha_bounds_cfg.py
+   Sub-problem solver type='cplexamp'
+   Keep solver files? False
+   Output solver results? False
+   Output solver log? False
+   Output times? False
+Initializing PH
+
+Invoking pre-initialization PH plugins
+Creating weight, average, and rho parameter vectors for scenario instances
+Creating deterministic SymbolMaps for scenario instances
+Executing user bound setter callback function
+checking for var BuildProj
+setting bounds for BuildProj
+setting bounds for BuildProj[('Oahu_CCCT', 2037)]
+Failed to initialize progressive hedging algorithm
+A failure occurred in PHAlgorithmBuilder. Cleaning up...

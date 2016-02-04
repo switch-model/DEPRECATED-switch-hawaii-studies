@@ -23,9 +23,6 @@ runfile*.txt
 completed_scenarios*.txt
 progress*.txt
 
-# ignore pha input files (developers can make their own)
-pha/
-
 # folders cloned from other repositories
 switch/
 switch-hawaii-core/

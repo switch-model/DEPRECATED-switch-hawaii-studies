@@ -1,0 +1,5 @@
+LOAD_ZONE	period	ev_gwh_annual
+Oahu	2021	117.0
+Oahu	2029	428.0
+Oahu	2037	846.0
+Oahu	2045	1157.0

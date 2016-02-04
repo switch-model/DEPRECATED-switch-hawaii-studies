@@ -1,0 +1,27 @@
+approach:
+central server keeps track of computation?
+each node starts up (with full dataset), asks which problem to run and which penalties to use, then runs. 
+Can this fit in Open Science Grid's small-parallel paradigm (High Throughput Parallel Computing), e.g., using cplex in interior point mode and maybe using pyomo in parallel somehow? Then they'd give more memory, e.g., 8 GB for 4 cores would be about right.
+coordinator identifies all the problems to run in each iteration, then moves the iteration forward. coordinator could also be an http server for retrieving data to setup each node.
+
+submit a job which solves one scenario (includes the relevant data), then returns the results
+
+probably each job should request (or be primed) with its particular data, since there will be hundreds of scenarios for prices, and probably about 60 sets of 12-day renewable resource data (and as currently setup, we'd use a whole separate 23 MB directory for every different scenario)
+
+do we get notified if a job is pre-empted, so we can restart it elsewhere? or does it automatically restart elsewhere?
+
+condor htc system will probably use dagman, which organizes jobs as acyclic graphs. so for each iteration, i will probably need to setup one job for each scenario; then have another job which depends on all of them; this gathers their data, calculates new averages and weights, etc. Finally, a post-script runs and if the model has not converged, it creates a new dag for the next iteration.
+
+in a desktop environment:
+create initial dependency tree, written to a file (maybe this lists the data files to bundle in).
+call dependency processor; this spawns several solvers and waits for them to finish; then spawns the cleanup routine; then calls the post-script; then exits
+post-script checks for convergence, creates new dependency list, calls the dependency processor.
+
+each solver is defined by the files it needs? these get staged to a temporary directory and then the model is run?
+
+setup program - get data from postgres, assign default values for the convergence parts (for use by the subproblems), write iteration info in a local file (for use by the iterator program)
+
+iterator program - check whether the calculation has converged; set up new calculation if needed (stage files to separate local subdirectories for each job)
+
+job manager - accept script created by iterator (for now this may just be a list of tuples of programs to run); run tasks in the correct sequence (in the provided temporary directories) and retrieve the results to the local directory
+

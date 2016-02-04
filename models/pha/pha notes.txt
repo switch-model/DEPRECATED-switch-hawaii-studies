@@ -1,0 +1,85 @@
+for several indexed variables (which may have an indexing set of arbitrary dimension):
+write out the values to a file (multiple files?)
+gather all the files together and write averages to file(s)
+when launching new model, read mean values from file(s)
+penalize deviations from these
+
+also write out the current penalty factors for each instance, and send those back when re-launching the instance.
+so ... for each variable we have mean-value and penalty-value parameters.
+just need a standard name for the component, e.g., PHA_VarName.tab
+do we need to tag these by scenarios too? probably, to avoid trouble. 
+
+launcher can launch each instance in a temp dir, then files get written there, read back by the launcher, re-written by the launcher...
+
+launcher needs to keep track of all the different scenarios - are all the prices prewritten in files, or does it construct prices each time? is it really going to have 100 copies of the datasets (22 MB for variable cap factors for each model)?
+
+solution: symlinks or cross-link system in the data process? (but then it still has to get resolved to send out the files)
+solution: create alternative versions of the particular files we want (just prices); swap those in for each scenario. But then where do we store the current penalty factors for each scenario? again, just have alternative versions for every scenario? one folder for each scenario on the master? copy temp files there, etc....
+
+create an inputs directory with 100 subdirs with alternative files (which overlay the root versions)
+until converged:
+    for each scenario:
+        copy inputs from root and then subdir to a temp dir
+        run model
+        model reads penalty factors and means; writes current values and penalty factors
+        gather outputs back to inputs dir (not great but OK)
+    calculate new means by scanning all inputs dirs
+    write new input files for each scenario
+write final plan
+
+    
+
+
+
+
+we need to know the current values of all the variables referenced in m.cost_components_annual
+we know the parent expression is indexed over periods, but it may be a sum of multiple terms
+and it includes both constant coefficients. Can we be sure these are indexed the same way on both models?
+
+dig through m.cost_components_annual and find the names and index values of all 
+
+Fuel_Costs_Annual is calculated based on FuelConsumptionByTier, which is indexed by period but
+calculated based on individual hours... not an investment variable.
+All we're really interested in are contributors to 
+Total_Proj_Fixed_Costs_Annual and Battery_Fixed_Cost_Annual and Pumped_Hydro_Fixed_Cost_Annual
+
+
+need a new obj function element that minimizes the differences in 
+BuildProj[proj, period]
+BuildBattery[zone, period]
+BuildPumpedHydroMW[proj, period]
+For this, we need to gather the current values of these vars (and their indexes) from the sub-models, average them across sub-models, then pass the averages back to the sub-models.
+
+
+
+['Total_Proj_Fixed_Costs_Annual', 
+'Fuel_Costs_Annual', 
+'RFM_Fixed_Costs_Annual', 
+'Battery_Fixed_Cost_Annual', 
+'ev_extra_annual_cost', 
+'ice_fuel_cost', 
+'Pumped_Hydro_Fixed_Cost_Annual']
+
+
+def fix_obj_expression(e, status=True):
+    """Recursively fix all variables included in an objective expression."""
+    try:
+        if hasattr(e, 'fixed'):
+            e.fixed = status      # see p. 171 of the Pyomo book
+        elif hasattr(e, '_numerator'):
+            for e2 in e._numerator:
+                fix_obj_expression(e2)
+            for e2 in e._denominator:
+                fix_obj_expression(e2)
+        elif hasattr(e, '_args'):
+            for e2 in e._args:
+                fix_obj_expression(e2)
+        elif hasattr(e, 'expr'):
+            fix_obj_expression(e.expr)
+        elif hasattr(e, 'is_constant') and e.is_constant():
+            pass    # numeric constant
+        else:
+            raise ValueError('Expression {e} does not have an expr, fixed or _args property, so it cannot be fixed.'.format(e=e))
+    except:
+        import pdb
+        pdb.set_trace()
