@@ -66,9 +66,10 @@ git checkout <version>
 The current options for `<version>` are `v2016-01-15-data` and `v2016-01-28`. You can skip this command or use 
 `git checkout master` to use the latest version of SWITCH. 
 
-Please note: versions of SWITCH-Hawaii from before 2016-02-01 are currently only compatible with Pyomo 4.1 and 
-the cplex solver. Please contact Matthias Fripp at UH (<mfripp@hawaii.edu>) if you would like to run earlier 
-versions of SWITCH-Hawaii with Pyomo 4.2 (the latest version) or the glpk solver.
+Please note: versions of SWITCH-Hawaii from before 2016-02-03 are currently 
+only compatible with Pyomo 4.1, the cplex solver and a Mac or Linux system (not Windows). 
+Please contact Matthias Fripp at UH (<mfripp@hawaii.edu>) if you would like 
+to run earlier versions of SWITCH-Hawaii in a different environment than this.
 
 On a Mac or Linux system, execute these commands:
 ```
