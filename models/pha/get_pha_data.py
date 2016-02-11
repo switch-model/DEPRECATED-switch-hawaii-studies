@@ -15,7 +15,7 @@ except ImportError:
 inputs_dir = "inputs_tiny"
 
 base_year = 2015
-n_scenarios = 4
+n_scenarios = 117
 n_digits = 4 # len(str(n_scenarios-1))  # how many leading zeros to use for scenario names
 
 pha_dir = os.path.join(inputs_dir, "pha")

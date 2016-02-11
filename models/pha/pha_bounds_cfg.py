@@ -81,3 +81,7 @@ def pysp_boundsetter_callback(self, scenario_tree, scenario):
                 # # a treenode, but we pass it anyway.
                 # self.setVariableBoundsOneScenario(tree_node, scenario, var_id, 0.0, float(limit))
     
+# for some reason runph looks for pysp_boundsetter_callback when run in single-thread mode
+# and ph_boundsetter_callback when called from mpirun with remote execution via pyro.
+# so we map both names to the same function.
+ph_boundsetter_callback = pysp_boundsetter_callback
