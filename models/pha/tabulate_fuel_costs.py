@@ -2,9 +2,9 @@ import os
 from collections import defaultdict
 
 n_digits = 4    # number of digits used in filenames
-n_scenarios = 117
+n_scenarios = 100
 inputs_dir = "inputs"
-inputs_subdir = "pha_117"
+inputs_subdir = "pha_100_annual"
 
 values = defaultdict(list)
 

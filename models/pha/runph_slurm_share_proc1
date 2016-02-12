@@ -1,0 +1,44 @@
+#!/bin/bash
+#args=("$@")
+#nsp=${args[0]}
+
+task_id=$SLURM_PROCID
+
+echo "starting task $task_id on host $(hostname)"
+
+# setup environment for python jobs
+source ~/.bash_profile
+module load lang/Python/2.7.10/python
+
+await_pyomo_ns ()
+{ 
+    # wait for a pyro name server to be found successfully at the specified port
+    # note: this is needed because dispatch_srvr (and maybe phsolverserver) retry
+    # much less aggressively (if at all) when a port is specified. But we must use
+    # a custom port to avoid conflicting with other jobs on the same cluster.
+    until [[ $(pyro-nsc -p $nsp ping | grep 'NS is at') ]]
+    	do
+    	   echo "task $task_id: Waiting for pyomo_ns to start at port $nsp..."
+           sleep 2
+    	done
+}
+
+case $SLURM_PROCID in
+    0) # note: this runs several lightweight tasks on a single core.
+       # there's no special arrangement to terminate runph if the others
+       # fail, but we don't care if pyomo_ns fails (if it doesn't affect
+       # runph), and runph will always fail once dispatch_srvr dies.
+       pyomo_ns -p $nsp -b $nsp -m &
+       await_pyomo_ns
+       dispatch_srvr -p $nsp &
+       # use eval instead of $cmd to expand arguments correctly, 
+       # even if they are quoted strings with spaces
+       eval $runph_cmd
+       # run inside screen to allow remote connection when the debugger is invoked
+       # echo "===== launching screen with runph command ====="
+       # screen -Dm bash -i -c "eval $runph_cmd"
+       ;;
+    *) await_pyomo_ns
+       phsolverserver --traceback --pyro-port=$nsp
+esac
+

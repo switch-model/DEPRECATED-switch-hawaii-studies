@@ -1,0 +1,106 @@
+#!/bin/bash
+
+task_id=$SLURM_PROCID
+node_id=$SLURM_NODEID
+HOSTNAME=$(hostname)    # sometimes HOSTNAME seems to inherit from the submitting or launching node
+
+# note: nsp and node0_reserved_slots are defined in the slurm script
+
+# setup environment for python jobs
+source ~/.bash_profile
+module load lang/Python/2.7.10/python
+
+await_pyomo_ns ()
+{ 
+    # wait for a pyro name server to be found successfully at the specified port
+    # note: this is needed because dispatch_srvr (and maybe phsolverserver) retry
+    # much less aggressively (if at all) when a port is specified. But we must use
+    # a custom port to avoid conflicting with other jobs on the same cluster.
+    until [[ $(pyro-nsc -p $nsp ping | grep 'NS is at') ]]
+    do
+        echo "task $task_id: Waiting for pyomo_ns to start at port $nsp..."
+        sleep 2
+    done
+}
+
+log_cpu ()
+{ 
+    # make a small delay so all the reports don't happen at the same time
+    sleep $SLURM_NODEID
+    minute_counter=0
+    while ((1))
+    do
+        # keep showing cpu and memory usage until this task gets killed
+        sleep 60
+        ((minute_counter++))
+        echo ""
+        echo "Memory and CPU usage on $HOSTNAME after $minute_counter minutes:"
+        free | head -n 2
+        ps ux | sort -rk 3,3
+        echo ""
+    done
+}
+
+task_num_on_node() {
+    # based on http://stackoverflow.com/questions/13347261/how-can-i-determine-the-ordinal-position-of-a-string-inside-a-comma-delimited-st
+    local IFS=,
+    local i=0
+    set -- $SLURM_GTIDS # split SLURM_GTIDS at commas and push into the input queue
+    for id; do
+        if [[ $id = $SLURM_PROCID ]]; then
+            echo $i
+            return
+        fi
+        ((i++))
+    done
+    echo -1
+}
+node_task_num=$(task_num_on_node)
+
+if ((node_task_num == 0))
+then
+    # running the first task on the current node
+    # start a memory and cpu logger
+    log_cpu &
+fi
+
+if ((coordinator_reserved_slots < 1))
+then
+    echo WARNING: coordinator_reserved_slots was not set; using 1. This may not be enough for large models.
+    coordinator_reserved_slots=1  ## hold at least 1 slot for the coordinator (usually need more)
+fi
+
+# This runs the runph command and name server on the first node, and reserves a total of
+# $coordinator_reserved_slots (out of 20) on this node for them. 
+# Otherwise it runs a worker task (dispatch_srvr + phsolverserver).
+# However, it only runs $workers_per_node worker tasks on most nodes, or 
+# $workers_per_node - $coordinator_reserved_slots worker tasks on the first node.
+# These restrictions are to conserve memory, since the runph command can use
+# a lot of memory, and even the worker tasks may each use more than 5% of the RAM
+# available (e.g., if one worker task is managing 2 instances of the big model,
+# then you can only fit 18-19 on a single node)
+if ((SLURM_NODEID == 0 )) && ((node_task_num == 0)); then
+    # this is task 0 on node 0; run the runph and pyomo_ns commands
+    if ((SLURM_PROCID == 0)); then
+        # this is usually task 0 but may not be guaranteed to be
+        echo "Starting pyomo_ns and runph in task $task_id on host $(hostname)"
+        pyomo_ns -p $nsp -b $nsp -m &
+        await_pyomo_ns
+        # use eval instead of $cmd to expand arguments correctly, 
+        # even if they are quoted strings with spaces
+        eval $runph_cmd
+    fi
+elif ((SLURM_NODEID == 0)) && ((node_task_num < coordinator_reserved_slots)); then
+    # do nothing; don't use the rest of the reserved slots on node 0,
+    # to leave enough memory for the runph command
+    echo "not running any process for task $task_id on host $(hostname)"
+elif ((node_task_num < workers_per_node)); then
+    # worker slot
+    echo "Starting dispatch_srvr and phsolverserver in task $task_id on host $(hostname)"
+    await_pyomo_ns
+    dispatch_srvr -p $nsp --allow-multiple-dispatchers &
+    phsolverserver --traceback --pyro-port=$nsp
+else
+    # don't run additional tasks on each node, to conserve memory for the others
+    echo "not running any process for task $task_id on host $(hostname)"
+fi

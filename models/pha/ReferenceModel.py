@@ -11,6 +11,15 @@ This can also be loaded interactively to experiment with instantiating from the
 ReferenceModel.dat file ("import ReferenceModel; ReferenceModel.load_dat_inputs()")
 """
 
+# turn on universal exception debugging (on the runph side)
+# import debug
+
+# define data location and size
+inputs_dir = "inputs"
+inputs_subdir = "pha_15"
+n_scenarios = 15
+n_digits = 4    # zero-padding in existing file names and scenario names
+
 import sys, os, time, traceback
 
 from pyomo.environ import *
@@ -41,9 +50,6 @@ from util import get
 add_relative_path('.') # components for this particular study
 
 print "loading model..."
-
-inputs_dir = "inputs_tiny"
-pha_subdir = "pha"
 
 model = define_AbstractModel(
     'switch_mod', 
@@ -86,7 +92,7 @@ def load_dat_inputs():
     instance = model.create_instance(dat_file_name())
     
 def dat_file_dir():
-    return os.path.join(inputs_dir, pha_subdir)
+    return os.path.join(inputs_dir, inputs_subdir)
 
 def dat_file_name():
      return os.path.join(dat_file_dir(), "RootNode.dat")
@@ -98,9 +104,6 @@ def save_dat_files():
         model, instance, save_path=dat_file,
         exclude=["rfm_supply_tier_cost", "rfm_supply_tier_limit", "rfm_supply_tier_fixed_cost"])
 
-    # identify scenarios, leaves and shared variables
-    n_scenarios = 117
-    n_digits = 4
     scenarios = [str(i).zfill(n_digits) for i in range(n_scenarios)]
     
     dat_file = os.path.join(dat_file_dir(), "ScenarioStructure.dat")
@@ -183,19 +186,19 @@ def save_dat_files():
 def solve():
     # can be accessed from interactive prompt via import ReferenceModel; ReferenceModel.solve()
     print "solving model..."
-    opt = SolverFactory("cplex") #, solver_io="nl")
+    opt = SolverFactory("cplex", solver_io="nl")
     # tell cplex to find an irreducible infeasible set (and report it)
     # opt.options['iisfind'] = 1
 
     # relax the integrality constraints, to allow commitment constraints to match up with 
     # number of units available
+    opt.options['mipgap'] = 0.001
     # display more information during solve
     # opt.options['display'] = 1
     # opt.options['bardisplay'] = 1
     # opt.options['mipdisplay'] = 2
-    #opt.options['mipgap'] = 0.001
-    #opt.options['primalopt'] = ""   # this is how you specify single-word arguments
-    #opt.options['advance'] = 2
+    opt.options['primalopt'] = ""   # this is how you specify single-word arguments
+    opt.options['advance'] = 2
     opt.options['threads'] = 1
 
     start = time.time()

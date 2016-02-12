@@ -31,3 +31,9 @@ switch-hawaii-core/
 models/pumped_hydro/inputs/variable_capacity_factors.tab
 models/oahu_2007_dr/inputs/old_variable_capacity_factors.tab
 
+# various pha files and inputs
+/models/pha/pyomo_examples_11103/
+/modesl/pha/*.out
+/models/pha/*.err
+/models/pha/pha progress*
+/models/pha/inputs*

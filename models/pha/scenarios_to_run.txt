@@ -1,6 +1,0 @@
---scenario_name 100_biofuel_0_dr --biofuel_limit 1.00 -n hydrogen -n demand_response_simple --ev_flat
---scenario_name 5_biofuel_0_dr --biofuel_limit 0.05 -n hydrogen -n demand_response_simple --ev_flat
---scenario_name 5_biofuel_hydrogen_0_dr --biofuel_limit 0.05 -n demand_response_simple --ev_flat
---scenario_name 5_biofuel_hydrogen --biofuel_limit 0.05
---scenario_name 100_biofuel --biofuel_limit 1.00 -n hydrogen
---scenario_name 5_biofuel --biofuel_limit 0.05 -n hydrogen

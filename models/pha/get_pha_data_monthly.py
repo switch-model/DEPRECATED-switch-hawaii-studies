@@ -14,8 +14,8 @@ except ImportError:
 # get_scenario_data.py should already have been run, creating a folder with standard inputs
 
 inputs_dir = "inputs"
-pha_dir = os.path.join(inputs_dir, "pha_100_annual")
-n_scenarios = 100
+pha_dir = os.path.join(inputs_dir, "pha_15")
+n_scenarios = 15
 
 n_digits = 4 # len(str(n_scenarios-1))  # how many leading zeros to use for scenario names
 base_year = 2015
@@ -32,12 +32,11 @@ period_ind = headers.index("period")
 periods = sorted(set(float(r[period_ind]) for r in standard_fuel_costs))
 
 # date when random forecast begins
-fuel_base_date = 2016
+fuel_base_date = 2015+5.0/12    # 6/1/15
 
 # fossil fuel base prices, $/mmbtu (oil includes delivery to Hawaii)
-oil_indexed_to_hawaii = 128.49/98.95    # (2014 Hawaii LSFO/Diesel Blend from Ulupono spreadsheet) / (2014 Brent Crude from BP)
-oil_base_price = 58.57*oil_indexed_to_hawaii/6.115  # (2016 $/bbl from BP spreadsheet) / (MMBtu/barrel from Ulupono spreadsheet)
-gas_base_price = 2.28   # 2016 Henry Hub gas from from BP spreadsheet
+oil_base_price = 111.67/6.115  # from Ulupono spreadsheet, for lsfo-diesel blend delivered to HI
+gas_base_price = 2.889   # from Ulupono spreadsheet, for Henry Hub gas
 
 # factors to calculate various fuel prices from base prices; 
 # each is a tuple of (oil multiplier, gas multiplier, constant adder).
@@ -51,23 +50,26 @@ price_factors["LNG", "bulk"] = (0.0, 1.2, 6.0) # from Ulupono spreadsheet
 price_factors["LNG", "container"] = (0.0, 1.0, 17.59)
 
 # build an empirical version of the joint distribution of price changes in 
-# oil (lsfo/diesel blend) and LNG, based on behavior in 1989-2016.
-# note: cost vectors are in 2015$, so we don't have to factor out inflation.
+# oil (lsfo/diesel blend) and LNG, based on behavior in 2000-2015.
+# also factor out inflation of about 0.19% per month during this period
 # opening the workbook is the slowest part of the whole script
 # print "loading 'Fuel Costs Monte Carlo-3.xlsx'"
-wb = openpyxl.load_workbook("bp-statistical-review-of-world-energy-2015-workbook.xlsx", data_only=True)
-oil_historical_prices = np.array([r[0].value for r in wb["Oil - Crude prices since 1861"]["C133:C160"]])
-gas_historical_prices = np.array([r[0].value for r in wb["Gas - Prices "]["E11:E38"]])
-oil_historical_multipliers = oil_historical_prices[1:]/oil_historical_prices[:-1]
-gas_historical_multipliers = gas_historical_prices[1:]/gas_historical_prices[:-1]
+wb = openpyxl.load_workbook("Fuel Costs Monte Carlo-3.xlsx", data_only=True)
+ws = wb["DBEDT-HEI-BBG Fuel Jan'00-pres"]
+# print "reading data from 'Fuel Costs Monte Carlo-3.xlsx'"
+oil_historical_prices = np.array([r[0].value for r in ws["K3:K182"]])
+gas_historical_prices = np.array([r[0].value for r in ws["N3:N182"]])
+oil_historical_multipliers = (1 - 0.0019) * oil_historical_prices[1:]/oil_historical_prices[:-1]
+gas_historical_multipliers = (1 - 0.0019) * gas_historical_prices[1:]/gas_historical_prices[:-1]
+# print "finished reading from 'Fuel Costs Monte Carlo-3.xlsx'"
 
-# list of all years from the forecast start date till the start of the last period
-years = np.arange(fuel_base_date, periods[-1]+1)
-# indices of the years that are closest to the start of each period.
-period_starts = np.array([np.argmin(np.abs(years - p)) for p in periods])
+# list of all months from the forecast start date till the start of the last period
+months = np.arange(fuel_base_date, periods[-1]+1.0/12, 1.0/12)
+# indices of the months that are closest to the start of each period.
+period_starts = np.array([np.argmin(np.abs(months - p)) for p in periods])
 
-# define a random walk through the future years, drawing from historical variations
-sample_draws = np.random.randint(0, len(oil_historical_multipliers), size=(len(years), n_scenarios))
+# define a random walk through the future months, drawing from historical variations
+sample_draws = np.random.randint(0, len(oil_historical_multipliers), size=(len(months), n_scenarios))
 oil_multipliers = np.cumprod(oil_historical_multipliers[sample_draws], axis=0)[period_starts, :]
 gas_multipliers = np.cumprod(gas_historical_multipliers[sample_draws], axis=0)[period_starts, :]
 
@@ -118,9 +120,6 @@ for s in range(n_scenarios):
         if (r[1], r[3]) in fuel_prices:
             r[4] = str(fuel_prices[r[1], r[3]][periods.index(float(r[2])), s])
         fuel_data.append(r)
-    # sort the fuel data into a nicer order
-    fuel_data.sort(key=lambda r: (r[0], r[1], r[3], r[2]))
-    
     # write_tab_file(
     #     "fuel_supply_curves_{s}.tab".format(s=str(s).zfill(n_digits)),
     #     headers, fuel_data,
