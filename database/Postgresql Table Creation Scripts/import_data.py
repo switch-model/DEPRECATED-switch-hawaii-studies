@@ -26,7 +26,7 @@ except ImportError:
     raise
 try:
     # note: the connection gets created when the module loads and never gets closed (until presumably python exits)
-    con = psycopg2.connect(database=switch_db, host=pghost)
+    con = psycopg2.connect(database=switch_db, host=pghost, sslmode='require')
     # set connection to commit changes automatically after each query is run
     con.autocommit = True
 
@@ -46,10 +46,10 @@ except psycopg2.OperationalError:
 
 def main():
     # run all the import scripts (or at least the ones we want)
-    # ev_adoption()
+    ev_adoption()
     # fuel_costs()
     # energy_source_properties()
-    fuel_costs_no_biofuel()
+    # fuel_costs_no_biofuel()
     # rps_timeseries()
 
 def execute(query, arguments=None):
@@ -190,13 +190,17 @@ def rps_timeseries():
 def ev_adoption():
     # identify pairs of (ev_scen_id, HECO scenario name):
     ev_adoption_scenarios=(
+        (0, 'Business as Usual'), # very low
         (1, 'No Burning Desire'), # low
         (2, 'Blazing a Bold Frontier'), # high
         (3, 'Stuck in the Middle'), # medium, a.k.a. 'Moved by Passion'
+        (4, 'Full Adoption'), # 100% by 2045
     )
     # get the EV adoption curves from an Excel workbook
-    # (based on HECO IRP 2013 Appendix E-10, p. E-113, extended to 2050)
-    ev_adoption_curves = get_table_from_xlsx("EV simple projections.xlsx", named_range='EV_Adoption')
+    # uses logistic curves fitted to HECO IRP 2013 Appendix E-10, p. E-113,
+    # as well as VMT data from DBEDT Economic Databook
+    # and vehicle registration rates from DBEDT monthly energy spreadsheet
+    ev_adoption_curves = get_table_from_xlsx("EV projections.xlsx", named_range='ev_data')
 
     # create the ev_adoption table
     execute("""
@@ -204,21 +208,54 @@ def ev_adoption():
         CREATE TABLE ev_adoption (
             load_zone varchar(40),
             year int,
-            ev_scen_id int,
-            ev_gwh float
+            ev_scenario varchar(40),
+            ev_share float,
+            ice_miles_per_gallon float,
+            ev_miles_per_kwh float,
+            ev_extra_cost_per_vehicle_year float,
+            n_all_vehicles float,
+            vmt_per_vehicle float
         );
     """)
 
     # insert data into the ev_adoption table
     n_rows = len(ev_adoption_curves['Year'])
-    for (ev_scen_id, col_name) in ev_adoption_scenarios:
+    for (ev_scen_id, ev_scenario_name) in ev_adoption_scenarios:
         executemany(
-            "INSERT INTO ev_adoption (load_zone, year, ev_scen_id, ev_gwh) VALUES (%s, %s, %s, %s)",
-            zip(['Oahu']*n_rows, ev_adoption_curves['Year'], [ev_scen_id]*n_rows, ev_adoption_curves[col_name])
+            "INSERT INTO ev_adoption VALUES ({})".format(','.join(["%s"]*9)),
+            zip(
+                ['Oahu']*n_rows, ev_adoption_curves['Year'], [ev_scenario_name]*n_rows, 
+                ev_adoption_curves[ev_scenario_name], # % adoption
+                ev_adoption_curves["ICE miles per gallon"],
+                ev_adoption_curves["EV miles per kWh"],
+                ev_adoption_curves["EV extra cost per vehicle per year"],
+                ev_adoption_curves["number of vehicles"],
+                ev_adoption_curves["VMT per vehicle"],
+            )
         )
 
     print "Created ev_adoption table."
-
+    
+    # see /Users/matthias/Dropbox/Research/shared/Paritosh/M.S Thesis Paritosh/Data Used In Thesis/calculate BAU charging.ipynb
+    
+    # create the ev_hourly_charge_profile table (simple business-as-usual charging profile,
+    # given as hourly weights)
+    execute("""
+        DROP TABLE IF EXISTS ev_hourly_charge_profile;
+        CREATE TABLE ev_hourly_charge_profile (
+            hour_of_day smallint, 
+            charge_weight float
+        );
+    """)
+    with open('ev_hourly_charge_profile.tsv') as f:
+        profile = [r.split("\t") for r in f.read().splitlines()][1:] # skip headers
+        
+    executemany(
+        "INSERT INTO ev_hourly_charge_profile (hour_of_day, charge_weight) VALUES (%s, %s);",
+        profile
+    )
+    print "Created ev_hourly_charge_profile table."
+    
 
 #########################
 # Oahu fuel price forecasts, derived from EIA

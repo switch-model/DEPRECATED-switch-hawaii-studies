@@ -688,6 +688,7 @@ update study_date set
     ts_scale_to_period = extract(day from (date + '1 MONTH'::INTERVAL) - date)
     where time_sample='2007_15';
 
+delete from study_hour where time_sample = '2007_15';
 insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
     select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
         extract(hour from date_time) as hour_of_day, date_time
@@ -695,6 +696,90 @@ insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_t
         on d.date=date(l.date_time) and l.load_zone='Oahu'
     where time_sample='2007_15'
     order by 3;
+
+-- data for the 15th of each month in 2045, for experimenting with demand systems
+
+delete from study_periods where time_sample = '2045_15';
+insert into study_periods (time_sample, period) values ('2045_15', 2045);
+
+delete from study_date where time_sample = '2045_15';
+insert into study_date (time_sample, period, study_date, date)
+    select distinct 
+        '2045_15', 2045, to_char(date_time, 'YYYYMMDD')::int, date(date_time)
+    from system_load where load_zone='Oahu' 
+        and extract(year from date_time)=2007 and extract(day from date_time)=15
+    order by 3;
+update study_date set 
+    ts_num_tps = 24,
+    ts_duration_of_tp = 1,
+    ts_scale_to_period = extract(day from (date + '1 MONTH'::INTERVAL) - date)
+    where time_sample='2045_15';
+
+delete from study_hour where time_sample = '2045_15';
+insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
+    select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time
+    from study_date d join system_load l 
+        on d.date=date(l.date_time) and l.load_zone='Oahu'
+    where time_sample='2045_15'
+    order by 3;
+
+-- data for even-numbered hours on the 15th day of even-numbered months in 2045, 
+-- for experimenting with demand systems
+
+delete from study_periods where time_sample = '2045_15_22';
+insert into study_periods (time_sample, period) values ('2045_15_22', 2045);
+
+delete from study_date where time_sample = '2045_15_22';
+insert into study_date (time_sample, period, study_date, date)
+    select distinct 
+        '2045_15_22', 2045, to_char(date_time, 'YYYYMMDD')::int, date(date_time)
+    from system_load where load_zone='Oahu' 
+        and extract(year from date_time)=2007 and extract(day from date_time)=15
+        and mod(extract(month from date_time)::int, 2) = 0 
+        and mod(extract(hour from date_time)::int, 2) = 0
+    order by 3;
+update study_date set 
+    ts_num_tps = 12,
+    ts_duration_of_tp = 2,
+    ts_scale_to_period = 365.0/6.0
+    where time_sample='2045_15_22';
+
+delete from study_hour where time_sample = '2045_15_22';
+insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
+    select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time
+    from study_date d join system_load l 
+        on d.date=date(l.date_time) and l.load_zone='Oahu'
+    where time_sample='2045_15_22'
+    order by 3;
+    
+-- data for the 15th of each even-numbered month in 2021-2045, for experimenting with demand systems
+
+delete from study_date where time_sample='2045_15_2';
+insert into study_date 
+    (period, study_date, month_of_year, date, 
+    hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
+    select period, 10000*period+100*month+15 as study_date, month as month_of_year,
+        format('%s-%s-%s', 2007, month, 15)::date as date,  -- use make_date() in postgresql 9.4+
+        1 as hours_in_sample, '2045_15_2' as time_sample, 
+        24 as ts_num_tps, 1 as ts_duration_of_tp, 8.0*365/6 as ts_scale_to_period
+    from generate_series(2021, 2045, 8) as period(period) 
+        cross join generate_series(2, 12, 2) as month(month)
+    order by 2;
+delete from study_hour where time_sample='2045_15_2';
+insert into study_hour (time_sample, study_date, study_hour, hour_of_day, date_time)
+    select time_sample, study_date, 100*study_date + extract(hour from date_time) as study_hour,
+        extract(hour from date_time) as hour_of_day, date_time
+    from study_date d join system_load l 
+        on d.date=date(l.date_time) and l.load_zone='Oahu'
+    where time_sample='2045_15_2'
+    order by 3;
+delete from study_periods where time_sample='2045_15_2';
+insert into study_periods
+    select distinct time_sample, period from study_date
+    where time_sample='2045_15_2'
+    order by 2;
 
     
 ##############################################
