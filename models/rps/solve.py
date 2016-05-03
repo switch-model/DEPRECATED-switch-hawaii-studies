@@ -515,10 +515,8 @@ def write_results(m, tag=None):
                 )
                 for s in m.NON_FUEL_ENERGY_SOURCES
             )
-            +tuple(sum(getattr(m, component)[lz, t] for lz in m.LOAD_ZONES)
-                    for component in m.LZ_Energy_Components_Produce)
-            +tuple(sum(getattr(m, component)[lz, t] for lz in m.LOAD_ZONES)
-                    for component in m.LZ_Energy_Components_Consume)
+            +tuple(getattr(m, component)[z, t] for component in m.LZ_Energy_Components_Produce)
+            +tuple(getattr(m, component)[z, t] for component in m.LZ_Energy_Components_Consume)
             +(get(m.dual, m.Energy_Balance[z, t], 0.0)/m.bring_timepoint_costs_to_base_year[t], 
                 # note: this uses 0.0 if no dual available, i.e., with glpk solver
             'peak' if m.ts_scale_to_year[m.tp_ts[t]] < avg_ts_scale else 'typical')
