@@ -3,20 +3,20 @@
 
 # note: this script can be run piecemeal from iPython/Jupyter, or all-at-once from the command line
 
-import datetime
+import datetime, csv
 import numpy as np
 from util import execute, executemany
 import shared_tables
 
 from k_means import KMeans
 
-# TODO: find the code that created the DistPV_flat (flat roofs) and DistPV_peak (peaked roofs) capacity factors
-# in our original database (as of August 2015). That is all missing, but the DistPV found in the backup from 
-# July 2014 matches DistPV_peak in the database, once the code from AppendData.py is applied to it (derating
-# capacity factor due to various losses.)
+# TODO: find the code that created the DistPV_flat (flat roofs) and DistPV_peak (peaked roofs) 
+# capacity factors in our original database (as of August 2015). That is all missing, but the 
+# DistPV found in the backup from July 2014 matches DistPV_peak in the database, once the code 
+# from AppendData.py is applied to it (derating capacity factor due to various losses.)
 
-# TODO: clean up this code and the DistPV code (when you find it), e.g., maybe cap capacity factors at 1.0 after
-# accounting for losses instead of before.
+# TODO: clean up this code and the DistPV code (when you find it), e.g., maybe cap capacity factors 
+# at 1.0 after accounting for losses instead of before.
 
 # TODO: change the long list of updates below to be more efficient somehow.
 # In postgresql, every update is done via a delete and insert, so they are very expensive.
@@ -25,7 +25,8 @@ from k_means import KMeans
 # (doesn't really seem to add much though.)
 # Or do all the updates in a temporary table and then insert from there into cap_factor?
 # (maybe the best idea)
-# see http://dba.stackexchange.com/questions/41059/optimizing-bulk-update-performance-in-postgresql for some ideas.
+# see http://dba.stackexchange.com/questions/41059/optimizing-bulk-update-performance-in-postgresql 
+# for some ideas.
 # Another option might be to read all the data out into python (maybe a numpy array), 
 # calculate row-by-row (or vectorized in numpy) and then insert the data back into postgresql
 # (maybe in one giant insert statement.)
@@ -51,10 +52,11 @@ print "Start Time: " + datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y")
 # and use that in the cap_factor table (not zone, technology, site, orientation)
 
 # This code currently treats every cell as a separate solar site (i.e., each cell is added separately
-# to max_capacity and cap_factor). In Dec. 2015,
-# MF added code to group cells into clusters (project sites), adding a corresponding column
-# to cell_central_pv_capacity. That column is used in the scenario_data.py script to aggregate 
-# records from max_capacity and cap_factor into larger project sites, but this is a kludge.
+# to max_capacity and cap_factor). In Dec. 2015 - Jun 2016,
+# MF added code to group cells into clusters (project sites), adding a corresponding cluster_id column
+# to cell_central_pv_capacity. That column could be used as a kludge in the scenario_data.py script 
+# to aggregate records from max_capacity and cap_factor into larger project sites. However, the
+# code to aggregate sites in scenario_data.py has never been written.
 # TODO: cluster cells into larger projects and only add the aggregated projects to cap_factor 
 # and max_capacity, not the individual cells (i.e., site_id disappears and cluster_id becomes 
 # site_id, with aggregated data). This is just waiting for the code that creates
@@ -94,7 +96,7 @@ execute("""
 
 # read in cell-level data
 # table contains site_id, grid_id, i, j, central_area, net_pv_capacity.
-with open('cell_central_pv_capacity_original.csv') as csvfile:
+with open('../cell_central_pv_capacity_original.csv') as csvfile:
     data = list(csv.DictReader(csvfile))
     x, y, area = np.array(list((r["i"], r["j"], r["central_area"]) for r in data), dtype=float).T
 
@@ -215,7 +217,7 @@ execute("""
 """)
 
 # Find the solar hour angle at the middle of each hour, or at the middle of the sunlit period
-# if the hour contains has a sunrise or sunset in the middle.
+# if the hour has a sunrise or sunset in the middle.
 # note: omega is zero when the sun is due south
 execute("""
     UPDATE "tracking_central_cell_pv_hourly" 

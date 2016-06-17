@@ -6,10 +6,10 @@ con = psycopg2.connect(database='switch', host='redr.eng.hawaii.edu')
 cur = con.cursor()    
 
 def execute(query, *args, **kwargs):
-    _execute(query, False, *args, **kwargs)
+    return _execute(query, False, *args, **kwargs)
 
 def executemany(query, *args, **kwargs):
-    _execute(query, True, *args, **kwargs)
+    return _execute(query, True, *args, **kwargs)
 
 def _execute(query, many, *args, **kwargs):
     q = dedent(query)
