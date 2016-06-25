@@ -2,7 +2,9 @@ import psycopg2
 from textwrap import dedent
 
 # note: con and cur stay open until the module goes out of scope
-con = psycopg2.connect(database='switch', host='redr.eng.hawaii.edu')
+switch_host = 'redr.eng.hawaii.edu'
+switch_db = 'switch'
+con = psycopg2.connect(database=switch_db, host=switch_host)
 cur = con.cursor()    
 
 def execute(query, *args, **kwargs):

@@ -539,3 +539,42 @@ UPDATE t_flat_load f
         AND s.load_zone=f.load_zone AND s.year_hist=f.year_hist;
 -- select * from t_flat_load where load_zone='Oahu'  order by year_hist, year_fore;
 INSERT INTO system_load_scale SELECT * from t_flat_load;
+
+
+------------------ Rename technologies for use with new PSIP data (2016-05-08) -----------------
+------------------ Run this before running import_data.py
+\timing
+SET maintenance_work_mem = '4GB';
+update max_capacity 
+    set technology = case technology
+        when 'DistPV_peak' then 'DistPV'
+        when 'Wind' then 'OnshoreWind'
+        when 'CentralPV' then 'CentralFixedPV'
+    end
+    where technology in ('DistPV_peak', 'Wind', 'CentralPV');
+update connect_cost 
+    set technology = case technology
+        when 'DistPV_peak' then 'DistPV'
+        when 'Wind' then 'OnshoreWind'
+        when 'CentralPV' then 'CentralFixedPV'
+    end
+    where technology in ('DistPV_peak', 'Wind', 'CentralPV');
+
+-- note: dropping and rebuilding the indexes takes about 20 mins, 
+-- but the update takes several hours or more with the indexes in place
+alter table cap_factor drop constraint dztos;
+drop index if exists dztos;
+drop index if exists ztsod;
+\d cap_factor
+-- make sure there are no indexes left
+
+update cap_factor 
+    set technology = case technology
+        when 'DistPV_peak' then 'DistPV'
+        when 'Wind' then 'OnshoreWind'
+        when 'CentralPV' then 'CentralFixedPV'
+    end
+    where technology in ('DistPV_peak', 'Wind', 'CentralPV');
+CREATE UNIQUE INDEX dztos ON cap_factor (date_time, load_zone, technology, orientation, site);
+CREATE UNIQUE INDEX ztsod ON cap_factor (load_zone, technology, site, orientation, date_time);
+ALTER TABLE cap_factor ADD PRIMARY KEY USING INDEX dztos;

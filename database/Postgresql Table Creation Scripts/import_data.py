@@ -5,8 +5,16 @@
 # imported by other code.
 # Started by Matthias Fripp on 2015-07-27
 
-import time, sys, os, itertools, csv
+import sys, csv, datetime
 from textwrap import dedent
+import numpy as np
+import pandas as pd
+import sqlalchemy
+
+switch_db = 'switch'
+pghost = 'redr.eng.hawaii.edu'
+connect_cost_per_mw_km = 1000.0     # TODO: specify this somewhere better
+db_engine = sqlalchemy.create_engine('postgresql://' + pghost + '/' + switch_db)
 
 try:
     import openpyxl
@@ -15,9 +23,6 @@ except ImportError:
     print "Please execute 'sudo pip install openpyxl' or 'pip install openpyxl' (Windows)."
     raise
 
-switch_db = 'switch'
-pghost = 'redr.eng.hawaii.edu'
-
 try:
     import psycopg2
 except ImportError:
@@ -25,10 +30,13 @@ except ImportError:
     print "Please execute 'sudo pip install psycopg2' or 'pip install psycopg2' (Windows)."
     raise
 try:
-    # note: the connection gets created when the module loads and never gets closed (until presumably python exits)
+    # note: the connection gets created when the module loads and never gets closed 
+    # (until presumably python exits)
     con = psycopg2.connect(database=switch_db, host=pghost, sslmode='require')
-    # set connection to commit changes automatically after each query is run
-    con.autocommit = True
+    # note: we don't autocommit because it makes executemany() very slow; 
+    # instead we call con.commit() after each query
+    con.autocommit = False
+
 
 except psycopg2.OperationalError:
     print dedent("""
@@ -46,11 +54,14 @@ except psycopg2.OperationalError:
 
 def main():
     # run all the import scripts (or at least the ones we want)
-    ev_adoption()
+    # ev_adoption()
     # fuel_costs()
     # energy_source_properties()
     # fuel_costs_no_biofuel()
     # rps_timeseries()
+    # offshore_wind()
+    # generator_info()
+    system_load()
 
 def execute(query, arguments=None):
     args = [dedent(query)]
@@ -58,6 +69,7 @@ def execute(query, arguments=None):
         args.append(arguments)
     cur = con.cursor()
     cur.execute(*args)
+    con.commit()
     return cur
 
 def executemany(query, arguments=None):
@@ -66,9 +78,18 @@ def executemany(query, arguments=None):
         args.append(arguments)
     cur = con.cursor()
     cur.executemany(*args)
+    con.commit()
+
+open_workbooks = {}
+
+def get_workbook(xlsx_file):
+    if xlsx_file not in open_workbooks:
+        # load the file, ignore formula text
+        open_workbooks[xlsx_file] = openpyxl.load_workbook(xlsx_file, data_only=True)
+    return open_workbooks[xlsx_file]
 
 def get_table_from_xlsx(xlsx_file, named_range, transpose=False):
-    wb = openpyxl.load_workbook(xlsx_file, data_only=True)  # load the file, ignore formula text
+    wb = get_workbook(xlsx_file)
     full_range = wb.get_named_range(named_range)
     # note: named range should be a simple rectangular region; 
     # if it contains more than one region we ignore all but the first
@@ -83,6 +104,31 @@ def get_table_from_xlsx(xlsx_file, named_range, transpose=False):
     # make a dictionary, with one column for each element of header row
     return dict(zip(head, data))
     
+def get_named_region(xlsx_file, named_range):
+    # get a single rectangular region from the specified file in the source data directory
+    wb = get_workbook(xlsx_file)
+    full_range = wb.get_named_range(named_range)
+    if full_range is None:
+        raise ValueError(
+            'Range "{}" not found in workbook "{}".'.format(named_range, xlsx_file))
+    if len(full_range.destinations) > 1:
+        raise ValueError(
+            'Range "{}" in workbook "{}" contains more than one region.'.format(named_range, xlsx_file))
+    ws, region = full_range.destinations[0]
+    return ws[region]
+
+def data_frame_from_xlsx(xlsx_file, named_range):
+    region = get_named_region(xlsx_file, named_range)
+    return pd.DataFrame([cell.value for cell in row] for row in region)
+
+def get_named_cell_from_xlsx(xlsx_file, named_range):
+    region = get_named_region(xlsx_file, named_range)
+    if not isinstance(region, openpyxl.cell.cell.Cell):
+        raise ValueError(
+            'Range "{}" in workbook "{}" does not refer to an individual cell.'.format(
+                named_range, xlsx_file))
+    return region.value
+
 #########################
 # rps timeseries (reusing version from before the server crashed)
 def rps_timeseries():
@@ -112,7 +158,6 @@ def rps_timeseries():
                 r["ts_num_tps"], r["ts_duration_of_tp"], r["ts_scale_to_period"])
             )
     
-    import sys
     with open('timepoints_rps.tab','r') as f:
         for r in csv.DictReader(f, delimiter='\t'):
             i += 1
@@ -257,8 +302,6 @@ def ev_adoption():
     print "Created ev_hourly_charge_profile table."
     
 
-#########################
-# Oahu fuel price forecasts, derived from EIA
 
 def fuel_costs():
 
@@ -269,16 +312,25 @@ def fuel_costs():
             year int,
             fuel_type varchar(30),
             price_mmbtu float,
+            fixed_cost float,
+            max_avail_at_cost float,
             fuel_scen_id varchar(40),
             tier varchar(20)
         );
+        ALTER TABLE fuel_costs OWNER TO admin;
     """)
 
-    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts.xlsx", 'EIA_ref')
-    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_low.xlsx", 'EIA_low')
-    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_high.xlsx", 'EIA_high')
-    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_LNG_pegged_to_oil.xlsx", 'EIA_lng_oil_peg')
-    import_fuel_costs("../../../Reference Docs/HECO Plans/HECO fuel cost forecasts_high_LNG_pegged_to_oil.xlsx", 'EIA_high_lng_oil_peg')
+    # TODO: add fixed_cost and max_avail_at_cost for EIA-based forecasts
+    
+    # Oahu fuel price forecasts, derived from EIA
+    import_fuel_costs("../../../data/EIA-based fuel cost forecasts/HECO fuel cost forecasts.xlsx", 'EIA_ref')
+    import_fuel_costs("../../../data/EIA-based fuel cost forecasts/HECO fuel cost forecasts_low.xlsx", 'EIA_low')
+    import_fuel_costs("../../../data/EIA-based fuel cost forecasts/HECO fuel cost forecasts_high.xlsx", 'EIA_high')
+    import_fuel_costs("../../../data/EIA-based fuel cost forecasts/HECO fuel cost forecasts_LNG_pegged_to_oil.xlsx", 'EIA_lng_oil_peg')
+    import_fuel_costs("../../../data/EIA-based fuel cost forecasts/HECO fuel cost forecasts_high_LNG_pegged_to_oil.xlsx", 'EIA_high_lng_oil_peg')
+
+    # Oahu hedged fuel costs
+    import_hedged_fuel_costs("../../../data/EIA-based fuel cost forecasts/hedged fuel prices.xlsx", "hedged")
 
 def import_fuel_costs(file, fuel_scen_id):
     
@@ -313,6 +365,33 @@ def import_fuel_costs(file, fuel_scen_id):
         )
 
     print "Added EIA-derived forecast (fuel_scen_id={}) to fuel_costs table.".format(fuel_scen_id)
+
+
+def import_hedged_fuel_costs(file, fuel_scen_id):
+    
+    prices = data_frame_from_xlsx(file, named_range='fuel_prices')
+    prices = prices.set_index(0)
+    prices.index.name = 'year'
+    prices = prices.T.set_index(['fuel_type', 'tier']).T.astype(float)
+    # switch to one row per value, and assign a name to the value
+    prices = pd.DataFrame({'price_mmbtu': prices.stack(['fuel_type', 'tier'])})
+    prices['load_zone'] = 'Oahu'
+    prices['fuel_scen_id'] = fuel_scen_id
+
+    tiers = data_frame_from_xlsx(file, named_range='tier_properties')
+    # Transpose, set row and column labels, and convert to floating point (converting None to NaN)
+    tiers = tiers.set_index(0).T.set_index(['fuel_type', 'tier']).astype(float)
+
+    # join the two together (have to have drop and restore the year index to make this work)
+    prices = prices.reset_index('year').join(tiers).set_index('year', append=True)
+    # could follow with prices = prices.reorder_levels(['year', 'fuel_type', 'tier']) if wanted
+
+    # remove any existing records
+    execute("DELETE FROM fuel_costs WHERE fuel_scen_id=%s;", (fuel_scen_id,))
+    
+    prices.to_sql('fuel_costs', db_engine, if_exists='append')
+    
+    print "Added hedged prices (fuel_scen_id={}) to fuel_costs table.".format(fuel_scen_id)
 
 #########################
 # Fuel properties, maintained manually in the Excel forecast workbook 
@@ -371,6 +450,196 @@ def fuel_costs_no_biofuel():
         WHERE rps_eligible = 0 AND fuel_scen_id LIKE 'EIA_%';
     """)
     
+def offshore_wind():
+    """Import approximate capacity factor for offshore wind farms. This is calculated
+    as the average of three proposed offshore sites to get approximately the right 
+    amount for diversified offshore wind. (It might be better just to model them as
+    three separate projects.)
+    
+    Note: The 2016 PSIP used hourly output possibly for 2014, from an existing 
+    wind farm on the Big Island with a capacity factor of 42%. We don't use this 
+    because it's the wrong profile for offshore Oahu, and especially because it
+    has inconsistent timing with our other weather and load data so it would 
+    create an artificial appearance of diversity (strong winds when Oahu actually 
+    has windless/sunless days).
+    """
+    # approximate locations for the centers of three proposed wind farms
+    # were found on 2016-04-07 by inspecting the 
+    # "Atlantic and Pacific OCS Wind Planning Areas and Wind Energy Areas" 
+    # shapefile from http://www.boem.gov/Renewable-Energy-GIS-Data/
+    # (http://www.boem.gov/uploadedFiles/BOEM/Renewable_Energy_Program/Mapping_and_Data/Wind_Planning_Areas.zip)
+    locs = np.array([[21.656, -158.572], [21.096, -157.987], [20.969, -157.799]])
+    cells = np.array(list(execute("select i, j, lat, lon from cell where grid_id = 'E';")))
+    cell_lat_lon = cells[:,-2:]
+    # this makes one row for each site, one col for each cell, showing distance in degrees**2
+    dist2 = ((locs[:,np.newaxis,:] - cell_lat_lon[np.newaxis,:,:])**2).sum(axis=2)
+    match_cells = dist2.argmin(axis=1)
+    turbine_cells = cells[match_cells]
+    
+    # normalized power curve for generic offshore wind turbine from http://www.nrel.gov/docs/fy14osti/61714.pdf p. 5,
+    # with operating range extended to 30 m/s like Repower 6 M shown on p. 4.
+    power_curve = np.array(zip(
+        range(32), 
+        [0] * 4 + [0.0281, 0.074, 0.1373, 0.2266, 0.3443, 0.4908, 0.6623, 0.815, 0.9179, 0.9798]
+        + [1] * 17 + [0]
+    ))
+        
+    hourly = pd.DataFrame(
+        list(execute(
+            """
+                select grid_id, i, j, complete_time_stamp as date_time, s100 
+                    from hourly_average 
+                    where grid_id='E' and (i, j) in %(cells)s;""", 
+            {"cells": tuple(tuple(c for c in r) for r in turbine_cells[:,:2].astype(int))}
+        )),
+        columns=['grid_id', 'i', 'j', 'date_time', 's100'],
+    )
+    hourly.set_index(['date_time', 'grid_id', 'i', 'j'], inplace=True)
+    
+    hourly['p100'] = np.interp(hourly['s100'].values, power_curve[:,0], power_curve[:,1])
+    hourly = hourly.unstack(level=['grid_id', 'i', 'j'])
+    # use mean of three sites as hourly output; also derate same as we do for land sites (from IRP 2013)
+    hourly['power'] = hourly['p100'].mean(axis=1)*0.8747
+
+    # put the power into cap_factor
+    out_data = zip(hourly.index.astype(datetime.datetime), hourly['power'].values)
+    
+    execute("delete from cap_factor where load_zone = 'Oahu' and technology = 'OffshoreWind';")
+    executemany("""
+        insert into cap_factor (technology, load_zone, site, orientation, date_time, cap_factor)
+        values ('OffshoreWind', 'Oahu', 0, 'na', %s, %s);
+    """, out_data)
+    
+    # add the project(s) to max_capacity
+    execute("""
+        delete from max_capacity where technology = 'OffshoreWind' and load_zone = 'Oahu';
+        insert into max_capacity 
+            (load_zone, technology, site, orientation, max_capacity)
+            values ('Oahu', 'OffshoreWind', 0, 'na', 800);
+    """)
+    
+    # note: we don't add the project(s) to the connect_cost table because we don't have project-specific
+    # connection costs for them. So they will automatically inherit the generic connection cost 
+    # from generator_info (assigned later). That happens to be zero in this case since the connection 
+    # cost is included in the overnight cost.
+
+def generator_info():
+    """Read data from 'PSIP 2016 generator data.xlsx and it in generator_info and generator_costs_by_year.
+
+    This spreadsheet is based on HECO's 2016-04-01 PSIP assumptions, shown in the report and sent in a
+    separate spreadsheet on 2016-05-05."""
+    
+    gen_info = data_frame_from_xlsx('PSIP 2016 generator data.xlsx', 'technology_info')
+    # set column headers and row indexes (index in the dataframe become index in the table)
+    gen_info = gen_info.T.set_index(0).T.set_index('technology')
+    gen_info.rename(
+        columns={
+            'fixed_o_m_per_kw_year': 'fixed_o_m', 
+            'variable_o_m_per_mwh': 'variable_o_m',
+            'full_load_heat_rate': 'heat_rate'
+        }, inplace=True)
+    # convert from cost per MWh to cost per kWh
+    gen_info['variable_o_m'] *= 0.001   
+    # convert unit_size = NA or 0 to NaN
+    gen_info['unit_size'] = gen_info['unit_size'].where(
+        (gen_info['unit_size'] != "NA") & (gen_info['unit_size'] != 0)
+    )
+    # convert all columns except fuel to numeric values (some of these were imported 
+    # as objects due to invalid values, which have now been removed)
+    # gen_info.convert_objects() does this nicely, but is deprecated.
+    for c in gen_info.columns:
+        if c != 'fuel':
+            gen_info[c] = pd.to_numeric(gen_info[c])
+    # store data
+    gen_info.to_sql('generator_info', db_engine, if_exists='replace')
+    
+    # store project-specific costs where possible
+    # note: connect_cost is created elsewhere
+import_data.execute("""
+    -- blank out all techs, to omit any that aren't in generator_info
+    UPDATE connect_cost SET connect_cost_per_kw = null;
+    -- assign connect costs for known techs
+    UPDATE connect_cost c
+        SET connect_cost_per_kw = 
+            connect_cost_per_kw_generic + (%(connect_cost_per_mw_km)s * connect_length_km * 0.001)
+        FROM generator_info g
+        WHERE g.technology = c.technology;
+""", dict(connect_cost_per_mw_km=connect_cost_per_mw_km))
+    
+    # load gen capital cost info
+    gen_costs = data_frame_from_xlsx('PSIP 2016 generator data.xlsx', 'technology_costs')
+    inflation_rate = get_named_cell_from_xlsx('PSIP 2016 generator data.xlsx', 'inflation_rate')
+    base_year = get_named_cell_from_xlsx('PSIP 2016 generator data.xlsx', 'o_m_base_year')
+    
+    gen_costs = gen_costs.T.set_index(0).T
+    gen_costs.columns.name = 'technology'
+    # drop info rows (now 0-6)
+    gen_costs = gen_costs.iloc[7:]
+    # rename the first column
+    gen_costs = gen_costs.rename(columns={gen_costs.columns[0]: 'year'})
+    # set year index
+    gen_costs = gen_costs.set_index('year')
+    # convert N/A to nan
+    gen_costs = gen_costs.where(gen_costs != ' N/A ').astype(float)
+
+    # select only the technologies that are in gen_info
+    gen_costs = gen_costs[gen_info.index]
+
+    # convert to real dollars in base year
+    gen_costs = gen_costs.multiply(
+        (1 + inflation_rate) ** (base_year - gen_costs.index.values), 
+        axis='rows'
+    )
+
+    # switch to stacked orientation (one row per year, tech), but keep as a DataFrame
+    gen_costs = pd.DataFrame({'capital_cost_per_kw': gen_costs.stack()})
+    gen_costs['base_year'] = 2016
+    gen_costs.to_sql('generator_costs_by_year', db_engine, if_exists='replace')
+
+def system_load():
+    # TODO: extend to other load zones by adding more rows to 'PSIP 2016 generator data.xlsx!sales_forecast'
+    
+    # get historical peak and average loads
+    hist = pd.read_sql(
+        sql="""
+            SELECT 
+                load_zone, EXTRACT(year FROM date_time) as year_hist, 
+                MAX(system_load) as peak_hist, AVG(system_load) as avg_hist
+            FROM system_load 
+            GROUP BY 1, 2;
+        """,
+        con=db_engine
+    )
+    # forecast peak and energy
+    fore = data_frame_from_xlsx('PSIP 2016 generator data.xlsx', 'sales_forecast')
+    fore = fore.T.set_index(0).T
+    fore = fore.rename(columns={'year': 'year_fore'})
+    # calculate scale factors
+    sls = pd.merge(hist, fore, on='load_zone')
+    sls['load_scen_id'] = 'PSIP_2016_04'
+    sls['peak_fore'] = sls['underlying forecast (MW)'] + sls['energy efficiency (MW)']
+    sls['avg_fore'] = (sls['underlying forecast (GWh)'] + sls['energy efficiency (GWh)'])/8.76
+    sls['scale'] = (sls['peak_fore'] - sls['avg_fore']) / (sls['peak_hist'] - sls['avg_hist'])
+    sls['offset'] = sls['peak_fore'] - sls['scale'] * sls['peak_hist']
+
+    # put into standard order, drop unneeded columns, convert to the right types for the database
+    db_columns = [
+        'load_zone', 'load_scen_id', 'year_hist', 'year_fore', 
+        'peak_hist', 'peak_fore', 'avg_hist', 'avg_fore', 'scale', 'offset'
+    ]
+    system_load_scale = pd.DataFrame()
+    for c in db_columns:
+        if c in ['load_zone', 'load_scen_id']:
+            system_load_scale[c] = sls[c].astype(str)
+        elif c in ['year_hist', 'year_fore']:
+            system_load_scale[c] = sls[c].astype(int)
+        else:
+            system_load_scale[c] = sls[c].astype(float)
+    system_load_scale.set_index(db_columns[:4], inplace=True)
+    # store data
+    execute("""delete from system_load_scale where load_scen_id='PSIP_2016_04';""")
+    system_load_scale.to_sql('system_load_scale', db_engine, if_exists='append')
+
 
 if __name__ == "__main__":
     main()

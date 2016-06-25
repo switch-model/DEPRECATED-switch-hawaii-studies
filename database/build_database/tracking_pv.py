@@ -1,364 +1,428 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+# sample SAM/NSRDB code available here:
+# https://sam.nrel.gov/samples
+# https://developer.nrel.gov/docs/solar/pvwatts-v5/
+# https://nsrdb.nrel.gov/api-instructions
+# https://sam.nrel.gov/sdk
+
 # note: this script can be run piecemeal from iPython/Jupyter, or all-at-once from the command line
 
-import datetime, csv
+# NOTE: this uses pandas DataFrames for most calculations, and breaks the work into batches
+# to avoid exceeding available memory (e.g., do one load zone worth of projects at a time,
+# then calculate one grid cell at a time and add it to the relevant projects). However, this
+# makes the code complex and the logic unclear, so it would probably be better to use a database,
+# where everything can be calculated at once in one query. (e.g. get a list of grid cells for all
+# projects from the database, then calculate cap factor for each grid cell and store it incrementally
+# in a cell cap factor table, then run one query which joins project -> project cell -> cell to
+# get hourly cap factors for all projects. This could use temporary tables for the cells, which
+# are then discarded.
+
+# NOTE: this stores all the hourly capacity factors in the postgresql database. That makes it
+# difficult to share with others. An alternative would be to store a separate text file for each
+# technology for each day and sync those via github. Disadvantages of that: querying is more complex
+# and we have to specify a reference time zone before saving the data (day boundaries are time zone
+# specific). Alternative: store in postgresql and publish a dump of the database.
+
+from __future__ import print_function, division
+import os, re, sys, struct, ctypes, datetime
 import numpy as np
-from util import execute, executemany
+import pandas as pd
+import dateutil.tz     # should be available, since pandas uses it
+import sqlalchemy
+
+from util import execute, executemany, switch_db, switch_host
 import shared_tables
 
-from k_means import KMeans
+# number of digits that latitude and longitude should be rounded to before matching
+# to the nsrdb files
+lat_lon_digits = 2
+# location of main database directory relative to this script file
+database_rel_dir = '..'
+# location of nsrdb hourly data files relative to the main database directory
+# all subdirectories of this one will be scanned for data files
+nsrdb_dir = 'NSRDB Hourly Irradiance Data'
+# pattern to match lat and lon in nsrdb file name (all matching files will
+# be read for that site, e.g., for multiple years); this should specify
+# named groups for at least 'lat' and 'lon'.
+# note: we don't try too hard to match an exact pattern of digits and symbols
+# (just use .* for each group). If the expressions can't be parsed, we let them
+# generate errors later.
+nsrdb_file_regex = re.compile(r'^(?P<stn>.*)_(?P<lat>.*)_(?P<lon>.*)_(?P<year>.*)[.]csv$')
+# location of System Advisor Model SDK relative to this script file
+sam_sdk_rel_dir = 'System Advisor Model'
 
-# TODO: find the code that created the DistPV_flat (flat roofs) and DistPV_peak (peaked roofs) 
-# capacity factors in our original database (as of August 2015). That is all missing, but the 
-# DistPV found in the backup from July 2014 matches DistPV_peak in the database, once the code 
-# from AppendData.py is applied to it (derating capacity factor due to various losses.)
+# load zone for which data is being prepared
+# TODO: add load zone to cluster input file
+load_zone = 'Oahu'
 
-# TODO: clean up this code and the DistPV code (when you find it), e.g., maybe cap capacity factors 
-# at 1.0 after accounting for losses instead of before.
+# tuple of technology name and array_type for pvwatts
+# note: Appendix F of 2016-04-01 PSIP uses 2 for tracking,
+# but 3 (backtracking) seems like a better choice
+central_solar_techs = pd.DataFrame(dict(
+    technology=['CentralFixedPV', 'CentralTrackingPV'],
+    array_type=[0, 3],
+    acres_per_mw=[7.6, 8.7],   # for projects < 20 MW from p. v of http://www.nrel.gov/docs/fy13osti/56290.pdf
+))
 
-# TODO: change the long list of updates below to be more efficient somehow.
-# In postgresql, every update is done via a delete and insert, so they are very expensive.
-# One improvement would be to batch together updates that don't depend on each other.
-# Another option may be to use a "with" clause to assemble the values in advance 
-# (doesn't really seem to add much though.)
-# Or do all the updates in a temporary table and then insert from there into cap_factor?
-# (maybe the best idea)
-# see http://dba.stackexchange.com/questions/41059/optimizing-bulk-update-performance-in-postgresql 
-# for some ideas.
-# Another option might be to read all the data out into python (maybe a numpy array), 
-# calculate row-by-row (or vectorized in numpy) and then insert the data back into postgresql
-# (maybe in one giant insert statement.)
-# This query works with 12.8 million rows, so it wouldn't need more than a few hundred MB to 
-# represent everything in RAM.
+# index the central_solar_techs and derive some useful values
+central_solar_techs.set_index('technology', inplace=True)
+# 1 / [(m2/acre) * (acre/mw)] 
+central_solar_techs['mw_per_m2'] = (1.0 / (4046.86 * central_solar_techs['acres_per_mw']))
 
+# find the database directory and System Advisor Model
+try:
+    curdir = os.path.dirname(__file__)
+except NameError:
+    # no __file__ variable; we're copying and pasting in an interactive session
+    curdir = os.getcwd()
+    pd.set_option('display.width', 200)
 
-print "Start Time: " + datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y")
+database_dir = os.path.normpath(os.path.join(curdir, database_rel_dir))
+if not os.path.exists(database_dir):
+    raise RuntimeError("Unable to find database directory at " + database_dir)
+sam_sdk_dir = os.path.normpath(os.path.join(curdir, sam_sdk_rel_dir))
+if not os.path.exists(sam_sdk_dir):
+    raise RuntimeError("Unable to find System Advisor Model (SAM) SDK directory at " + sam_sdk_dir)
 
-# NOTE: this file and script_other_rough.txt are missing the code to create the
-# cap_factor, max_capacity and connect_distance_temp tables. This code has been partly
-# rewritten near the end of this file, but needs to be finished. (Also see notes about
-# connect_distance_temp in script_other_rough.txt)
-# TODO: rewrite the code that identifies interconnect locations for each project site
-# and calculates the distance between them, and put that in this file (and also in a wind
-# processing file). (Both scripts can just go through any records in max_capacity that don't have 
-# interconnects or distances and fill them in.)
-# TODO: put lat, lon, interconnect IDs, and distances in max_capacity instead of separate 
-# temporary tables (are there any situations where a project would have a max_capacity but not
-# an interconnect location or vice versa? maybe fossil projects with unlimited capacity, but
-# we could add those to the max_capacity table anyway [maybe rename it to "project"])
-# TODO: simplify project indexing, to have a unique ID for each project in the project table,
-# and use that in the cap_factor table (not zone, technology, site, orientation)
+# Load the System Advisor Model (SAM) SDK API
+# Note: SAM SDK can be downloaded from https://sam.nrel.gov/sdk
+# nsrdb/sam code is based on examples in sscapi.py itself
+# Also see https://nsrdb.nrel.gov/api-instructions and sam-sdk/ssc_guide.pdf
 
-# This code currently treats every cell as a separate solar site (i.e., each cell is added separately
-# to max_capacity and cap_factor). In Dec. 2015 - Jun 2016,
-# MF added code to group cells into clusters (project sites), adding a corresponding cluster_id column
-# to cell_central_pv_capacity. That column could be used as a kludge in the scenario_data.py script 
-# to aggregate records from max_capacity and cap_factor into larger project sites. However, the
-# code to aggregate sites in scenario_data.py has never been written.
-# TODO: cluster cells into larger projects and only add the aggregated projects to cap_factor 
-# and max_capacity, not the individual cells (i.e., site_id disappears and cluster_id becomes 
-# site_id, with aggregated data). This is just waiting for the code that creates
-# cap_factor and max_capacity to be rewritten and then for this whole script to be run through.)
+# preload ssc library, so sscapi won't fail if it's not in the library search path
+if sys.platform == 'win32' or sys.platform == 'cygwin':
+    if 8 * struct.calcsize("P") == 64:
+        path = ['win64', 'ssc.dll']
+    else:
+        path = ['win32', 'ssc.dll']
+elif sys.platform == 'darwin':
+    path = ['osx64', 'ssc.dylib']
+elif sys.platform == 'linux2':
+    path = ['linux64', 'ssc.so']
+else:
+    raise RuntimeError('Unsupported operating system: {}'.format(sys.platform))
+ssc_dll = ctypes.CDLL(os.path.join(sam_sdk_dir, *path))
 
-########################################
-# create central_pv tables
-# NOTE: Matthias Fripp moved this code here from "script_other_rough.txt"
-# on 2015-12-13, and then added code to cluster projects before reading
-# them into cell_central_pv_capacity
-execute("""
-    DROP TABLE IF EXISTS cell_central_pv_capacity;
-    CREATE TABLE cell_central_pv_capacity
-    (
-        cluster_id int NOT NULL,
-        site_id int NOT NULL,
-        grid_id character(1) NOT NULL,
-        i smallint NOT NULL,
-        j smallint NOT NULL,
-        central_area double precision,
-        net_pv_capacity double precision, 
-        CONSTRAINT grid_id_ij_pkey1 PRIMARY KEY (grid_id, i, j)
+# add search path to sscapi.py
+sys.path.append(os.path.join(sam_sdk_dir, 'languages', 'python'))
+import sscapi
+ssc = sscapi.PySSC()
+pvwatts5 = ssc.module_create("pvwattsv5")
+ssc.module_exec_set_print(0)
+
+# setup database
+db_engine = sqlalchemy.create_engine('postgresql://' + switch_host + '/' + switch_db)
+
+def main():
+    tracking_pv()
+    distributed_pv()
+
+def tracking_pv():
+    # make a list of all available NSRDB data files
+    nsrdb_file_dict, years = get_nsrdb_file_dict()
+    cluster_cell = pd.DataFrame.from_csv(
+        db_path('GIS/Utility-Scale Solar Sites/solar_cluster_nsrdb_grid_renamed.csv'),
+        index_col='gridclstid'
     )
-    WITH (
-      OIDS=FALSE
-    );
-    ALTER TABLE cell_central_pv_capacity OWNER TO admin;
-""")
+    cluster_cell = cluster_cell[cluster_cell['solar_covg']>0]
+    cell = cluster_cell.groupby('nsrdb_id')
+    cluster = cluster_cell.groupby('cluster_id')
+    cluster_total_solar_area = cluster['solar_area'].sum()
 
-# we have no record of where the original version of cell_central_pv_capacity
-# came from (as of summer 2015). 
-# An empty table was created in Postgresql Table Creation Scripts/script_other_rough.txt
-# and then immediately used, without ever being filled in.
-# MF exported the data from the postgres table to cell_central_pv_capacity_original.csv
-# on 2015-12-13. We will eventually need to re-create this input file from scratch using
-# GIS filters. This table should have central_area = [usable area in square meters].
+    cluster_ids = cluster.groups.keys()             # list of all cluster ids, for convenience
+    cluster_id_digits = len(str(max(cluster_ids)))  # max number of digits for a cluster id
+    # site_ids for each cluster_id (these distinguish PV sites from wind sites that may have the same number)
+    site_ids = ['PV_' + str(cluster_id).zfill(cluster_id_digits) for cluster_id in cluster_ids]
 
-# read in cell-level data
-# table contains site_id, grid_id, i, j, central_area, net_pv_capacity.
-with open('../cell_central_pv_capacity_original.csv') as csvfile:
-    data = list(csv.DictReader(csvfile))
-    x, y, area = np.array(list((r["i"], r["j"], r["central_area"]) for r in data), dtype=float).T
+    # calculate weighted average lat and lon for each cluster
+    # (note: the axis=0 and axis=1 keep pandas from generating lots of nans due to
+    # trying to match column name in addition to row index)
+    cluster_coords = pd.concat([
+        cluster_cell['cluster_id'],
+        cluster_cell[['solar_lat', 'solar_lon']].multiply(cluster_cell['solar_area'], axis=0)
+    ], axis=1).groupby('cluster_id').sum().div(cluster_total_solar_area, axis=0)
+    cluster_coords.columns=['latitude', 'longitude']
 
-# data = csv_to_dict('cell_central_pv_capacity_original.csv')
-# i = np.array(data["i"], dtype=float)
-# j = np.array(data["j"], dtype=float)
-# area = np.array(data["central_area"], dtype=float)
+    # get list of technologies to be defined
+    technologies = central_solar_techs.index.values
 
-# cluster the cells into 150 projects (somewhat arbitrarily) instead of ~750,
-# and use the cluster numbers as new site_id's.
-km = KMeans(150, np.c_[x, y], size=0.0001*area)
-km.init_centers()
-km.find_centers()
-# km.plot()
-for i in range(len(x)):
-    # km.cluster_id is an array of cluster id's, same length as x and y
-    data[i]["cluster_id"] = km.cluster_id[i]
+    # calculate capacity factors for all projects
 
-# insert the modified data into the database
-# note: it is reportedly faster to construct a single 
-# insert query with all the values using python's string
-# construction operators, since executemany runs numerous 
-# separate inserts. However, it's considered more secure to use 
-# the database library's template substitution, so we do that.
-executemany("""
-    INSERT INTO cell_central_pv_capacity
-    (cluster_id, site_id, grid_id, i, j, central_area, net_pv_capacity)
-    VALUES (
-        %(cluster_id)s, %(site_id)s, 
-        %(grid_id)s, %(i)s, %(j)s, 
-        %(central_area)s, %(net_pv_capacity)s
+    # This dict will hold vectors of capacity factors for each cluster for each year and technology.
+    # This arrangement is simpler than using a DataFrame because we don't yet know the
+    # indexes (timesteps) of the data for each year.
+    cluster_cap_factors = dict()
+    for tech in technologies:
+        # go through all the needed nsrdb cells and add them to the capacity factor for the
+        # relevant cluster and year
+        for cell_id, grp in cell:
+            # grp has one row for each cluster that uses data from this cell
+            lat = round_coord(grp['nsrdb_lat'].iloc[0])
+            lon = round_coord(grp['nsrdb_lon'].iloc[0])
+            for year in years:
+                cap_factors = get_cap_factors(nsrdb_file_dict[lat, lon, year], central_solar_techs.loc[tech, 'array_type'])
+                # note: iterrows() would convert everything to a single (float) series, but itertuples doesn't
+                for clst in grp.itertuples():
+                    contrib = cap_factors * clst.solar_area / cluster_total_solar_area[clst.cluster_id]
+                    key = (tech, clst.cluster_id, year)
+                    if key in cluster_cap_factors:
+                        cluster_cap_factors[key] += contrib
+                    else:
+                        cluster_cap_factors[key] = contrib
+
+    # get timesteps for each year (based on lat and lon of first cell in the list)
+    timesteps = dict()
+    lat = round_coord(cluster_cell['nsrdb_lat'].iloc[0])
+    lon = round_coord(cluster_cell['nsrdb_lon'].iloc[0])
+    for year in years:
+        timesteps[year] = get_timesteps(nsrdb_file_dict[(lat, lon, year)])
+
+    # make an index of all timesteps
+    timestep_index = pd.concat([pd.DataFrame(index=x) for x in timesteps.values()]).index.sort_values()
+
+    # make a single dataframe to hold all the data
+    cap_factor_df = pd.DataFrame(
+        index=timestep_index,
+        columns=pd.MultiIndex.from_product([technologies, site_ids]),
+        dtype=float
     )
-""", data)
 
-# list(execute("select * from cell_central_pv_capacity order by site_id;"))
-# TODO: add an index on cluster_id to use when aggregating clusters.
+    # assign values to the dataframe
+    for ((tech, cluster_id, year), cap_factors) in cluster_cap_factors.iteritems():
+        cap_factor_df.update(pd.DataFrame(
+                cap_factors,
+                index=timesteps[year],
+                columns=[(tech, 'PV_' + str(cluster_id).zfill(cluster_id_digits))]
+        ))
+    cap_factor_df.columns.names = ['technology', 'site']
+    cap_factor_df.index.names=['date_time']
 
-# note: the code below was moved here from "script_other_rough.txt"
-# in December 2015. It has never been run or properly evaluated.
-# TODO: make sure the code below makes sense before rerunning it.
-execute("""
-    DROP TABLE IF EXISTS central_pv_temp;
-    CREATE TABLE central_pv_temp AS
-        SELECT h.grid_id, h.i, h.j, h.date, h.hour, h.complete_time_stamp, h.dswrf
-        FROM cell_central_pv_capacity c JOIN hourly_average h USING (grid_id, i, j);
+    # add load_zone and orientation to the index
+    cap_factor_df['load_zone'] = load_zone
+    cap_factor_df['orientation'] = 'na'
+    cap_factor_df.set_index(['load_zone', 'orientation'], append=True, inplace=True)
+    # convert to database orientation, with natural order for indexes,
+    # but also keep as a DataFrame
+    cap_factor_df = pd.DataFrame(
+        {'cap_factor': cap_factor_df.stack(cap_factor_df.columns.names)}
+    )
+    # sort table, then switch to using z, t, s, o as index (to match with project table)
+    cap_factor_df = cap_factor_df.reorder_levels(
+        ['load_zone', 'technology', 'site', 'orientation', 'date_time']
+    ).sort_index().reset_index('date_time')
 
-    UPDATE central_pv_temp SET cp_cell = (dswrf*0.001);
-
-    UPDATE central_pv_temp SET cp_cell_updated = cp_cell;
-
-    UPDATE central_pv_temp SET cp_cell_updated = 1 
-    WHERE cp_cell_updated > 1;
-
-    CREATE TABLE central_pv_hourly AS
-    SELECT  site_id, complete_time_stamp, cp_cell_updated AS cap_factor
-    FROM central_pv_temp ;
-
-    DROP TABLE central_pv_temp;
-
-    CREATE TABLE central_pv AS
-    SELECT  A1.site_id, A1.net_pv_capacity as size_MW, T1.interconnect_id
-    FROM cell_central_pv_capacity A1, interconnect T1
-    WHERE T1.interconnect_id=1;
-""")
-
-# done creating central_pv tables (2015-12-13)
-########################################
-
-execute("""
-    CREATE TABLE tracking_central_cell_pv_hourly (
-        site_id integer, grid_id char, i smallint, j smallint, 
-        date_time timestamp with time zone, doy smallint, hour smallint, 
-        sunrise_sunset_time real, 
-        longitude real, phi_angle real, 
-        del_angle real, omg_angle real, z_angle real, cos_z real, 
-        cos_i real, dni_cos_z real, 
-        diffused real, ghi real, i0 real, kt real,
-        tracking_radiation_troughs real, tracking_radiation_panels real, 
-        capacity_factor_troughs real, capacity_factor_panels real
-    );
-""")
-
-# NOTE: On 2015-01-01 MF changed this code:
-# (date_part('month',"hourly_average".complete_time_stamp)-1)*30
-#   +date_part('doy',"hourly_average".complete_time_stamp)
-# to this code (note "doy", not "day"):
-# date_part('doy',"hourly_average".complete_time_stamp)
-# this simplifies the code and should eliminate some minor mis-synchronization within the year
-execute("""
-   INSERT INTO "tracking_central_cell_pv_hourly" 
-     (site_id,grid_id,i,j,date_time,doy,hour,del_angle,ghi) 
-   SELECT "cell_central_pv_capacity".site_id,
-     "hourly_average".grid_id,
-     "hourly_average".i,"hourly_average".j,
-     "hourly_average".complete_time_stamp,
-     date_part('doy',"hourly_average".complete_time_stamp),
-     date_part('hour',"hourly_average".complete_time_stamp),
-     23.45*sin(2*pi()*(date_part('doy',"hourly_average".complete_time_stamp)-81)/365),
-     "hourly_average".dswrf 
-     FROM "hourly_average" INNER JOIN "cell_central_pv_capacity" USING (grid_id, i, j)
-""")
-
-execute("""
-    UPDATE "tracking_central_cell_pv_hourly"
-    SET phi_angle = "cell".lat, longitude = "cell".lon
-    FROM "cell" 
-    WHERE "tracking_central_cell_pv_hourly".i="cell".i AND "tracking_central_cell_pv_hourly".j="cell".j 
-""")
-
-execute("""
-    UPDATE "tracking_central_cell_pv_hourly" 
-    SET sunrise_sunset_time = 
-        CASE 
-            WHEN hour < 12
-            THEN 12*abs(acos(abs(tan(phi_angle*pi()/180)*tan(del_angle*pi()/180))))/pi() 
-            ELSE 12 + 12*abs(acos(abs(tan(phi_angle*pi()/180)*tan(del_angle*pi()/180))))/pi()
-        END + (15*EXTRACT(timezone from date_time)/3600 - longitude)/15
-""")
-
-# Find the solar hour angle at the middle of each hour, or at the middle of the sunlit period
-# if the hour has a sunrise or sunset in the middle.
-# note: omega is zero when the sun is due south
-execute("""
-    UPDATE "tracking_central_cell_pv_hourly" 
-    SET omg_angle = longitude-15*EXTRACT(timezone from date_time)/3600 + 15.0 * (-12.0 +
-    CASE
-        WHEN 
-            hour < 12 
-            AND sunrise_sunset_time > hour
-            AND sunrise_sunset_time < hour + 1 
-        THEN (sunrise_sunset_time + hour + 1) / 2
-        WHEN 
-            hour >= 12
-            AND sunrise_sunset_time > hour
-            AND sunrise_sunset_time < hour + 1
-        THEN (sunrise_sunset_time + hour) / 2
-        ELSE hour+0.5
-    END)
-""")
-
-query = """UPDATE "tracking_central_cell_pv_hourly" SET cos_z = cos(pi()*phi_angle/180)*cos(pi()*del_angle/180)*cos(pi()*omg_angle/180) + sin(pi()*phi_angle/180)*sin(pi()*del_angle/180)"""
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET z_angle = (180*acos(abs(cos_z))/pi())"""
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET cos_i = sqrt(cos_z*cos_z + pow(cos(pi()*del_angle/180)*sin(pi()*omg_angle/180),2))"""
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET i0 = abs(1367*(1+0.033*cos(2*pi()*doy/365))*cos_z)"""
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET kt = CASE WHEN (ghi > 0) THEN (abs(ghi/i0)) ELSE 0 END """
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET kt = 1 WHERE kt > 1 """
-execute(query)    
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET diffused = ghi*CASE WHEN (kt <= '0.22') THEN (1-0.09*kt) WHEN (kt > '0.22' AND kt <= '0.8') THEN (0.9511-0.16*kt+4.388*pow(kt,2)-16.638*pow(kt,3)+12.336*pow(kt,4)) ELSE '0.165' END """
-execute(query)    
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET dni_cos_z = ghi - diffused"""
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET dni_cos_z = 0 WHERE dni_cos_z < 0 """
-execute(query)
-con.commit()
-query = """UPDATE "tracking_central_cell_pv_hourly" SET tracking_radiation_troughs = cos_i*dni_cos_z*cos(abs(phi_angle*pi()/180))/(abs(cos_z)+power(10,-10))"""
-execute(query)
-con.commit()
-print "Starting calculation of Capacity Factors"
-query = """UPDATE "tracking_central_cell_pv_hourly" SET tracking_radiation_panels = tracking_radiation_troughs + diffused"""
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_troughs = tracking_radiation_troughs/1000"""
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_troughs = 1 WHERE capacity_factor_troughs > 1 """
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_troughs = 0.896*capacity_factor_troughs"""
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_panels = tracking_radiation_panels/1000"""
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_panels = 1 WHERE capacity_factor_panels > 1 """
-execute(query)
-query = """UPDATE "tracking_central_cell_pv_hourly" SET capacity_factor_panels = 0.896*capacity_factor_panels"""
-execute(query)
-
-# MF moved clustering code from "script_other_rough.txt" to here 2015-12-30.
-# note: the code to create max_capacity seems to have been lost, so MF rewrote it 2015-12-30.
+    # make a dataframe showing potential projects (same structure as "project" table)
+    # note: for now we don't really handle multiple load zones and we don't worry about orientation
+    # (may eventually have projects available with different azimuth and slope)
+    # This concatenates a list of DataFrames, one for each technology
+    project_df = pd.concat([
+        pd.DataFrame(dict(
+            load_zone=load_zone,
+            technology=tech,
+            site=site_ids,
+            orientation='na',
+            max_capacity=cluster_total_solar_area*central_solar_techs.loc[tech, 'mw_per_m2'],
+            latitude=cluster_coords['latitude'],
+            longitude=cluster_coords['longitude'],
+        ))
+        for tech in technologies
+    ], axis=0).set_index(['load_zone', 'technology', 'site', 'orientation'])
 
 
-# TODO: finish writing code below, including making it aggregate by clusters
-shared_tables.create_table("project")
-shared_tables.create_table("cap_factor")
+    # store data in postgresql tables
+    shared_tables.create_table("project")
+    execute("DELETE FROM project WHERE technology IN %s;", [tuple(technologies)])
+    project_df.to_sql('project', db_engine, if_exists='append')
+    # TODO: write shared_tables.calculate_interconnect_distances() and call it from here
 
-# note: code below is not quite right yet
-execute("""
-    CREATE TABLE cluster_solar_hourly AS
-        SELECT 
-            c.site_id, h.date_time, 
-            SUM(h.capacity_factor_troughs*c.net_pv_capacity)/SUM(c.net_pv_capacity) AS capacity_factor_troughs,
-            SUM(h.capacity_factor_panels*c.net_pv_capacity)/SUM(c.net_pv_capacity) AS capacity_factor_panels
-        FROM cell_central_pv_capacity c JOIN tracking_central_cell_pv_hourly h USING (grid_id, i, j)
-        GROUP BY 1, 2;
-""")
+    # retrieve the project IDs (created automatically in the database)
+    project_ids = pd.read_sql(
+        "SELECT project_id, load_zone, technology, site, orientation "
+        + "FROM project WHERE technology IN %(techs)s;",
+        db_engine, index_col=['load_zone', 'technology', 'site', 'orientation'],
+        params={'techs': tuple(technologies)}
+    )
+    cap_factor_df['project_id'] = project_ids['project_id']
 
-# TODO: insert clusters into project table
+    # convert date_time values into strings for insertion into postgresql.
+    # Inserting a timezone-aware DatetimeIndex into postgresql fails; see
+    # http://stackoverflow.com/questions/35435424/pandas-to-sql-gives-valueerror-with-timezone-aware-column/35552061
+    # note: the string conversion is pretty slow
+    cap_factor_df['date_time'] = pd.DatetimeIndex(cap_factor_df['date_time']).strftime("%Y-%m-%d %H:%M:%S%z")
 
-# TODO: write this function
-shared_tables.calculate_interconnect_distances()
+    cap_factor_df.set_index(['project_id', 'date_time'], inplace=True)
+    # Do we need error checking here? If any projects aren't in cap_factor_df, they'll
+    # create single rows with NaNs (and any prior existing cap_factors for them will
+    # get dropped below).
+    # If any rows in cap_factor_df aren't matched to a project, they'll go in with
+    # a null project_id.
 
-# TODO: calculate capacity factors for clusters
-
-# TODO: change code below to call shared_tables.drop_indexes("cap_factor")
-# then delete all "CentralTrackingPV" records from cap_factor
-# then add new CentralTrackingPV records to cap_factor (with project_id 
-# from project table instead of z, t, s, o)
-# then call shared_tables.create_indexes("cap_factor")
-
-# manipulate cap_factor table (slow)
-# execute("""
-#     UPDATE "cap_factor"
-#     SET technology='DistPV_peak', cap_factor = 0.9076*cap_factor
-#     WHERE technology = 'DistPV';
-# """)
-# execute("""
-#     DELETE FROM cap_factor WHERE technology = 'CentralTrackingPV';
-#     INSERT INTO cap_factor (technology, load_zone, site, orientation, date_time, cap_factor)
-#     SELECT 'CentralTrackingPV' as technology, grid_description as load_zone, site_id as site,
-#         'na' as orientation, date_time, capacity_factor_panels as cap_factor
-#     FROM tracking_central_cell_pv_hourly JOIN grid USING (grid_id);
-# """)
-
-# rebuild cap_factor table and then add indexes, because that's probably faster than inserting/updating
-# (the inserts below each take about two minutes, and each index takes 6-7 mins. The insert above takes several hours.)
-# see http://dba.stackexchange.com/questions/41059/optimizing-bulk-update-performance-in-postgresql for some ideas.
-# NOTE: in the future, it may be better just to drop the indexes, add the CentralTrackingPV data to cap_factor
-# and then recreate the indexes.
-# (you can check times in psql by using the \timing command, then pasting the code below into the window.)
-execute("""
-    DROP TABLE IF EXISTS t_cap_factor;
-    CREATE TABLE t_cap_factor AS SELECT * FROM cap_factor LIMIT 0;
-    INSERT INTO t_cap_factor (technology, load_zone, site, orientation, date_time, cap_factor)
-        SELECT CASE WHEN technology = 'DistPV' THEN 'DistPV_peak' ELSE technology END as technology,
-            load_zone, site, orientation, date_time, 
-            CASE WHEN technology = 'DistPV' THEN 0.9076*cap_factor ELSE cap_factor END AS cap_factor
-        FROM cap_factor WHERE technology != 'CentralTrackingPV';
-    INSERT INTO t_cap_factor (technology, load_zone, site, orientation, date_time, cap_factor)
-        SELECT 'CentralTrackingPV' as technology, grid_description as load_zone, site_id as site,
-            'na' as orientation, date_time, capacity_factor_panels as cap_factor
-        FROM tracking_central_cell_pv_hourly JOIN grid USING (grid_id);
-""")
-execute("""
-    SET maintenance_work_mem = '4GB';
-    CREATE UNIQUE INDEX dztos ON t_cap_factor (date_time, load_zone, technology, orientation, site);
-    CREATE UNIQUE INDEX ztsod ON t_cap_factor (load_zone, technology, site, orientation, date_time);
-    ALTER TABLE t_cap_factor ADD PRIMARY KEY USING INDEX dztos;
-""")
-execute("""
-    ALTER TABLE cap_factor RENAME TO cap_factor_old;
-    ALTER TABLE t_cap_factor RENAME TO cap_factor;
-""")
+    shared_tables.create_table("cap_factor")    # only created if it doesn't exist
+    shared_tables.drop_indexes("cap_factor")    # drop and recreate is faster than incremental sorting
+    execute("DELETE FROM cap_factor WHERE project_id IN %s;", [tuple(project_ids['project_id'])])
+    cap_factor_df.to_sql('cap_factor', db_engine, if_exists='append', chunksize=10000)
+    shared_tables.create_indexes("cap_factor")
 
 
-print "End Time: " + datetime.datetime.now().strftime("%I:%M%p on %B %d, %Y") 
-    
+def get_cap_factors(file, array_type):
+    dat = ssc.data_create()
+
+    # set system parameters
+    # These match Table 7 of Appendix F of 2016-04-01 PSIP Book 1 unless otherwise noted
+    dc_ac_ratio = 1.5
+    ssc.data_set_number(dat, 'system_capacity', 1.0 * dc_ac_ratio) # dc, kW (we want 1000 kW AC)
+    ssc.data_set_number(dat, 'dc_ac_ratio', dc_ac_ratio)
+    ssc.data_set_number(dat, 'tilt', 0)
+    ssc.data_set_number(dat, 'azimuth', 180)
+    ssc.data_set_number(dat, 'inv_eff', 96)
+    ssc.data_set_number(dat, 'losses', 14.0757)
+    # array_type: 0=fixed rack, 1=fixed roof, 2=single-axis, 3=single-axis backtracked
+    ssc.data_set_number(dat, 'array_type', array_type)
+    # gcr: ground cover ratio (may be used for backtrack and shading calculations)
+    ssc.data_set_number(dat, 'gcr', 0.4)
+    ssc.data_set_number(dat, 'adjust:constant', 0)
+    # module_type: 0=standard, 1=premium, 2=thin film
+    # I set it to a reasonable value (probably default)
+    ssc.data_set_number(dat, 'module_type', 0)
+
+    # specify the file holding the solar data
+    ssc.data_set_string(dat, 'solar_resource_file', file)
+
+    # run PVWatts5
+    if ssc.module_exec(pvwatts5, dat) == 0:
+        err = 'PVWatts V5 simulation error:\n'
+        idx = 1
+        msg = ssc.module_log(pvwatts5, 0)
+        while (msg is not None):
+            err += '\t: {}\n'.format(msg)
+            msg = ssc.module_log(pvwatts5, idx)
+            idx += 1
+        raise RuntimeError(err.strip())
+    else:
+        # get power production in kW; for a 1 kW AC system this is also the capacity factor
+        cap_factors = np.asarray(ssc.data_get_array(dat, 'gen'), dtype=float)
+
+    ssc.data_free(dat)
+
+    return cap_factors
+
+def get_timesteps(file):
+    """Retrieve timesteps from nsrdb file as pandas datetime series. Based on code in sscapi.run_test2()."""
+    dat = ssc.data_create()
+
+    ssc.data_set_string(dat, 'file_name', file)
+    ssc.module_exec_simple_no_thread('wfreader', dat)
+
+    # create a tzinfo structure for this file
+    # note: nsrdb uses a fixed offset from UTC, i.e., no daylight saving time
+    tz_offset = ssc.data_get_number(dat, 'tz')
+    tzinfo = dateutil.tz.tzoffset(None, 3600 * tz_offset)
+
+    df = pd.DataFrame(dict(
+        year=ssc.data_get_array(dat, 'year'),
+        month=ssc.data_get_array(dat, 'month'),
+        day=ssc.data_get_array(dat, 'day'),
+        hour=ssc.data_get_array(dat, 'hour'),
+        minute=ssc.data_get_array(dat, 'minute'),
+    )).astype(int)
+
+    ssc.data_free(dat)
+
+    # create pandas DatetimeIndex for the timesteps in the file
+    # note: we ignore minutes because time indexes always refer to the start of the hour
+    # in our database
+    # note: if you use tz-aware datetime objects with pd.DatetimeIndex(), it converts them
+    # to UTC and makes them tz-naive. If you use pd.to_datetime() to make a column of datetime
+    # values, you have to specify UTC=True and then it does the same thing.
+    # So we start with naive datetimes and then specify the tzinfo when creating the
+    # DatetimeIndex. (We could also use idx.localize(tzinfo) after creating a naive DatetimeIndex.)
+
+    timesteps = pd.DatetimeIndex(
+        [datetime.datetime(year=t.year, month=t.month, day=t.day, hour=t.hour) for t in df.itertuples()],
+        tz=tzinfo
+    )
+    return timesteps
+
+# # This class is based on http://stackoverflow.com/questions/17976063/how-to-create-tzinfo-when-i-have-utc-offset
+# # It does the same thing as dateutil.tz.tzoffset, so we use that instead.
+# class TimeZoneInfo(datetime.tzinfo):
+#     """tzinfo derived concrete class"""
+#     _dst = datetime.timedelta(0)
+#     _name = None
+#     def __init__(self, offset_hours):
+#         self._offset = datetime.timedelta(hours=offset_hours)
+#     def utcoffset(self, dt):
+#         return self._offset
+#     def dst(self, dt):
+#         return self.__class__._dst
+#     def tzname(self, dt):
+#         return self.__class__._name
+
+def db_path(path):
+    """Convert the path specified relative to the database directory into a real path.
+    For convenience, this also converts '/' file separators to whateer is appropriate for
+    the current operating system."""
+    return os.path.join(database_dir, *path.split('/'))
+def round_coord(coord):
+    # convert lat or lon from whatever form it's currently in to a standard form (2-digit rounded float)
+    # this gives more stable matching in dictionaries, indexes, etc.
+    return round(float(coord), 2)
+
+def get_nsrdb_file_dict():
+    # get a list of all the files that have data for each lat/lon pair
+    # (parsed from the file names)
+    file_dict = dict()
+    years = set()
+    for dir_name, dirs, files in os.walk(db_path(nsrdb_dir)):
+        for f in files:
+            file_path = os.path.join(dir_name, f)
+            m = nsrdb_file_regex.match(f)
+            if m is None:
+                # print "Skipping unrecognized file {}".format(file_path)
+                pass
+            else:
+                lat = round_coord(m.group('lat'))
+                lon = round_coord(m.group('lon'))
+                year = int(m.group('year'))
+                file_dict[lat, lon, year] = file_path
+                years.add(year)
+    return file_dict, years
+
+def distributed_pv():
+    # for now, just reuse old data
+
+    # store data in postgresql tables
+    shared_tables.create_table("project")
+    shared_tables.create_table("cap_factor")
+
+    # remove old records (best before removing indexes)
+    execute("""
+        DELETE FROM cap_factor WHERE project_id IN (SELECT project_id FROM project WHERE technology = 'DistPV');
+    """)
+    execute("""
+        DELETE FROM project WHERE technology = 'DistPV';
+    """)
+
+    # remove indexes
+    shared_tables.drop_indexes("cap_factor")    # drop and recreate is faster than incremental sorting
+
+    execute("""
+        INSERT INTO project (load_zone, technology, site, orientation, max_capacity)
+        SELECT load_zone, technology, 'DistPV' AS site, orientation, max_capacity
+            FROM max_capacity_pre_2016_06_21
+            WHERE technology = 'DistPV';
+    """)
+    execute("""
+        INSERT INTO cap_factor (project_id, date_time, cap_factor)
+            SELECT project_id, date_time, cap_factor
+                FROM cap_factor_pre_2016_06_21 cf JOIN project USING (load_zone, technology, orientation)
+                WHERE cf.technology = 'DistPV';
+    """)
+
+    # restore indexes
+    shared_tables.create_indexes("cap_factor")
+
+if __name__ == '__main__':
+    main()

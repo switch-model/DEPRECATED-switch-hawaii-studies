@@ -1,5 +1,6 @@
 # revised by Matthias 2015-09-08, altering the table structure.
-# note: all of this code should be streamlined and migrated into "import_data.py"
+# note: this is partly or completely superceded by Postgresql Table Creation Scripts/import_data.py (fuel_costs()).
+# TODO: streamline this code and migrate it into "import_data.py" (and then migrate that to ../build_database/)
 
 1. The fuel_costs table was created using the script :
 

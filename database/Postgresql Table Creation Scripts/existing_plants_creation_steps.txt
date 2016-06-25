@@ -38,7 +38,7 @@ UPDATE eia860gen set primemover='CC'
 WHERE plant_code=54646 AND primemover IN('CA','CT');
 
 5.Remove the plant with plant_code=56338 and plant_name="Kahuku Wind Power LLc" having primemover="BA". 
-This is removed from the table as it's status is shown as "OS" which is Out of service – was not used for 
+This is removed from the table as it's status is shown as "OS" which is Out of service - was not used for 
 some or all of the reporting period and is NOT expected to be returned to service in the next calendar year.
 
 
@@ -1355,3 +1355,66 @@ insert into fuel_switch (project_id, aer_fuel_code, year)
     from existing_plants
     where plant_name = 'Waiau' and generator_id in ('W9', 'W10');
 ------------------- end fuel_switch code --------------------
+
+
+----------- archive original (IRP-based) project info table ----------
+-- note: a new one will be created in import_data.py
+alter table generator_costs rename to generator_costs_irp;
+
+----------- update retirement ages for existing plants ----------
+create table existing_plants_irp as select * from existing_plants;
+create table existing_plants_gen_tech_irp as select * from existing_plants_gen_tech;
+
+-- keep all plants running to 2054 (after study) by default
+-- note: this gives unrealistically low capital recovery rates for existing plants
+-- TODO: this should be a a more realistic age, e.g., 2020 or max_age, whichever comes later,
+-- with max_age = 25 years for wind/solar, 50 years for fossil, but we don't have the option
+-- of rebuilding existing wind projects, and HECO seems to think they'll keep Kahe 5 & 6 running
+-- indefinitely, so we don't do that.
+update existing_plants
+    set max_age = 2054 - insvyear;
+    
+-- use retirement dates from 2016-04-01 PSIP, Book 2, pp. 93-95 (Theme 2)
+
+update existing_plants
+    set max_age = 2016 - insvyear
+    where project_id IN ('Oahu_Honolulu_H8','Oahu_Honolulu_H9');
+
+update existing_plants
+    set max_age = 2020 - insvyear
+    where project_id in ('Oahu_Kahe_K1','Oahu_Kahe_K2','Oahu_Kahe_K3');
+
+update existing_plants
+    set max_age = 2022 - insvyear
+    where project_id IN ('Oahu_Waiau_W3','Oahu_Waiau_W4');
+
+update existing_plants
+    set max_age = 2022 - insvyear
+    where project_id in ('Oahu_Kahe_K4');
+
+update existing_plants
+    set max_age = 2024 - insvyear
+    where project_id IN ('Oahu_Waiau_W5','Oahu_Waiau_W6');
+
+update existing_plants
+    set max_age = 2030 - insvyear
+    where project_id = 'Oahu_Waiau_W7_W8';
+
+-- note: we assume IPP plants keep running all the way through
+--update existing_plants
+--    set max_age = 2023 - build_year
+--    where project_id = 'Oahu_Kalaeloa_CC1_CC2';
+
+--update existing_plants
+--    set max_age = 2022 - build_year
+--    where project_id = 'Oahu_AES_GEN1';
+
+-- check retirement dates:
+select p.project_id, p.insvyear, p.max_age, p.insvyear+p.max_age as retire_year 
+    from existing_plants p;
+
+-- update gen_tech (use latest retirement year if there are conflicting ages for different units)
+update existing_plants_gen_tech as t 
+    set max_age = p.max_age
+    from (select technology, max(max_age) as max_age from existing_plants group by 1) as p
+    where t.technology = p.technology;
