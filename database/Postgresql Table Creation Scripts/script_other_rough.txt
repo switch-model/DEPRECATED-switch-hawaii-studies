@@ -211,27 +211,8 @@ WHERE A1.turbine_id IN (SELECT turbine_id
 Add a column "interconnect_id" to cluster table and set it to "1" which is "Honolulu" and can be referenced from the "interconnect" table.
 UPDATE cluster SET interconnect_id = 1;
 
-CREATE TABLE interconnect
-
-(
-  interconnect_id integer NOT NULL,
- 
-   county text,
-  lat double precision,
-
-   lon double precision,
-  
-   CONSTRAINT interconnect_id_pkey PRIMARY KEY (interconnect_id)
-);
-
--- At some point interconnect was filled in with the equivalent of the following command.
--- The original code is missing, but these appear to be the population-weighted centers of each county.
-INSERT INTO interconnect (interconnect_id, county, lat, lon) VALUES 
-    (1, 'Honolulu', 21.372464, -157.913673),
-    (2, 'Hawaii', 19.672837, -155.421895),
-    (3, 'Maui', 20.863747, -156.493816),
-    (4, 'Kauai', 22.021022, -159.442112),
-    (5, 'Kalawao', 21.188495, -156.979972);
+# NOTE: Matthias Fripp moved the code to create interconnect table 
+# from here to import_data.py on 2016-06-25
 
 CREATE TABLE cluster_hourly AS
 	SELECT  T1.cluster_id, A1.timestamp, 

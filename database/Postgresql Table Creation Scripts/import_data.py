@@ -5,15 +5,17 @@
 # imported by other code.
 # Started by Matthias Fripp on 2015-07-27
 
-import sys, csv, datetime
+import sys, csv, datetime, os
 from textwrap import dedent
 import numpy as np
 import pandas as pd
 import sqlalchemy
 
+sys.path.append(os.path.join('..', 'build_database'))
+import shared_tables, tracking_pv
+
 switch_db = 'switch'
 pghost = 'redr.eng.hawaii.edu'
-connect_cost_per_mw_km = 1000.0     # TODO: specify this somewhere better
 db_engine = sqlalchemy.create_engine('postgresql://' + pghost + '/' + switch_db)
 
 try:
@@ -59,9 +61,13 @@ def main():
     # energy_source_properties()
     # fuel_costs_no_biofuel()
     # rps_timeseries()
-    # offshore_wind()
+    # system_load()
     # generator_info()
-    system_load()
+    # onshore_wind()
+    # offshore_wind()
+    tracking_pv.tracking_pv()
+    tracking_pv.distributed_pv()
+    shared_tables.calculate_interconnect_costs()
 
 def execute(query, arguments=None):
     args = [dedent(query)]
@@ -304,6 +310,8 @@ def ev_adoption():
 
 
 def fuel_costs():
+    # TODO: add base_year to fuel_costs table, and fuel_cost import scripts,
+    # and use it for inflation adjustments in scenario_data.py
 
     # create the fuel_costs table if needed
     execute("""
@@ -315,7 +323,7 @@ def fuel_costs():
             fixed_cost float,
             max_avail_at_cost float,
             fuel_scen_id varchar(40),
-            tier varchar(20)
+            tier varchar(20),
         );
         ALTER TABLE fuel_costs OWNER TO admin;
     """)
@@ -449,6 +457,31 @@ def fuel_costs_no_biofuel():
         FROM fuel_costs c JOIN energy_source_properties p ON c.fuel_type = p.energy_source
         WHERE rps_eligible = 0 AND fuel_scen_id LIKE 'EIA_%';
     """)
+
+def onshore_wind():
+    """Import old onshore wind data into newer tables."""
+    # TODO: write code to create these records directly from OWITS data and GIS files
+    # and also store location and interconnect distance
+    execute("""
+        delete from cap_factor 
+            where project_id in 
+                (select project_id from project where technology = 'OnshoreWind');
+        delete from project where technology='OnshoreWind';
+        insert into project 
+            (load_zone, technology, site, orientation, max_capacity, connect_distance_km)
+            select load_zone, technology, concat('OnWind_', site), 
+                orientation, max_capacity, connect_length_km
+            from max_capacity_pre_2016_06_21 
+                left join connect_cost_pre_2016_06_21 using (load_zone, technology, site, orientation)
+                where technology='OnshoreWind';
+        insert into cap_factor (project_id, date_time, cap_factor)
+            select project_id, date_time, cap_factor
+                from cap_factor_pre_2016_06_21 c
+                    join project p on 
+                        (p.load_zone=c.load_zone and p.technology=c.technology and 
+                        p.site = concat('OnWind_', c.site) and p.orientation=c.orientation)
+                    where c.technology='OnshoreWind';
+    """)
     
 def offshore_wind():
     """Import approximate capacity factor for offshore wind farms. This is calculated
@@ -501,27 +534,38 @@ def offshore_wind():
     # use mean of three sites as hourly output; also derate same as we do for land sites (from IRP 2013)
     hourly['power'] = hourly['p100'].mean(axis=1)*0.8747
 
-    # put the power into cap_factor
-    out_data = zip(hourly.index.astype(datetime.datetime), hourly['power'].values)
+    # delete any old OffshoreWind records from cap_factor
+    execute("""
+        delete from cap_factor 
+            where project_id in 
+                (select project_id from project where load_zone = 'Oahu' and technology = 'OffshoreWind');
+    """)
+  
+    # add the new project to the project table
+    execute("""
+        delete from project where technology = 'OffshoreWind' and load_zone = 'Oahu';
+        insert into project 
+            (load_zone, technology, site, orientation, max_capacity)
+            values ('Oahu', 'OffshoreWind', 'OffWind', 'na', 800);
+    """)
+    # retrieve the project_id for the new project
+    project_id = execute("""
+        select project_id from project where load_zone = 'Oahu' and technology = 'OffshoreWind';
+    """).next()[0]
     
-    execute("delete from cap_factor where load_zone = 'Oahu' and technology = 'OffshoreWind';")
+    # put the power data into cap_factor
+    out_data = zip([project_id]*len(hourly), hourly.index.astype(datetime.datetime), hourly['power'].values)
+    
+    # TODO: consider removing and restoring indexes before this
     executemany("""
-        insert into cap_factor (technology, load_zone, site, orientation, date_time, cap_factor)
-        values ('OffshoreWind', 'Oahu', 0, 'na', %s, %s);
+        insert into cap_factor (project_id, date_time, cap_factor)
+        values (%s, %s, %s);
     """, out_data)
     
-    # add the project(s) to max_capacity
-    execute("""
-        delete from max_capacity where technology = 'OffshoreWind' and load_zone = 'Oahu';
-        insert into max_capacity 
-            (load_zone, technology, site, orientation, max_capacity)
-            values ('Oahu', 'OffshoreWind', 0, 'na', 800);
-    """)
-    
-    # note: we don't add the project(s) to the connect_cost table because we don't have project-specific
-    # connection costs for them. So they will automatically inherit the generic connection cost 
-    # from generator_info (assigned later). That happens to be zero in this case since the connection 
-    # cost is included in the overnight cost.
+    # note: we don't add latitude, longitude or interconnect_id (and cost) because we don't 
+    # have project-specific connection costs for them. So they will automatically use
+    # the generic connection cost from generator_info (assigned later). 
+    # That happens to be zero in this case since the connection cost is included in the overnight cost.
 
 def generator_info():
     """Read data from 'PSIP 2016 generator data.xlsx and it in generator_info and generator_costs_by_year.
@@ -529,6 +573,8 @@ def generator_info():
     This spreadsheet is based on HECO's 2016-04-01 PSIP assumptions, shown in the report and sent in a
     separate spreadsheet on 2016-05-05."""
     
+    base_year = get_named_cell_from_xlsx('PSIP 2016 generator data.xlsx', 'o_m_base_year')
+
     gen_info = data_frame_from_xlsx('PSIP 2016 generator data.xlsx', 'technology_info')
     # set column headers and row indexes (index in the dataframe become index in the table)
     gen_info = gen_info.T.set_index(0).T.set_index('technology')
@@ -544,6 +590,9 @@ def generator_info():
     gen_info['unit_size'] = gen_info['unit_size'].where(
         (gen_info['unit_size'] != "NA") & (gen_info['unit_size'] != 0)
     )
+    # report base_year for inflation calculations later
+    gen_info['base_year'] = base_year
+    
     # convert all columns except fuel to numeric values (some of these were imported 
     # as objects due to invalid values, which have now been removed)
     # gen_info.convert_objects() does this nicely, but is deprecated.
@@ -553,23 +602,9 @@ def generator_info():
     # store data
     gen_info.to_sql('generator_info', db_engine, if_exists='replace')
     
-    # store project-specific costs where possible
-    # note: connect_cost is created elsewhere
-import_data.execute("""
-    -- blank out all techs, to omit any that aren't in generator_info
-    UPDATE connect_cost SET connect_cost_per_kw = null;
-    -- assign connect costs for known techs
-    UPDATE connect_cost c
-        SET connect_cost_per_kw = 
-            connect_cost_per_kw_generic + (%(connect_cost_per_mw_km)s * connect_length_km * 0.001)
-        FROM generator_info g
-        WHERE g.technology = c.technology;
-""", dict(connect_cost_per_mw_km=connect_cost_per_mw_km))
-    
     # load gen capital cost info
     gen_costs = data_frame_from_xlsx('PSIP 2016 generator data.xlsx', 'technology_costs')
     inflation_rate = get_named_cell_from_xlsx('PSIP 2016 generator data.xlsx', 'inflation_rate')
-    base_year = get_named_cell_from_xlsx('PSIP 2016 generator data.xlsx', 'o_m_base_year')
     
     gen_costs = gen_costs.T.set_index(0).T
     gen_costs.columns.name = 'technology'
@@ -593,7 +628,8 @@ import_data.execute("""
 
     # switch to stacked orientation (one row per year, tech), but keep as a DataFrame
     gen_costs = pd.DataFrame({'capital_cost_per_kw': gen_costs.stack()})
-    gen_costs['base_year'] = 2016
+    # record the base year to allow adjustment to other years later
+    gen_costs['base_year'] = base_year
     gen_costs.to_sql('generator_costs_by_year', db_engine, if_exists='replace')
 
 def system_load():
@@ -639,6 +675,34 @@ def system_load():
     # store data
     execute("""delete from system_load_scale where load_scen_id='PSIP_2016_04';""")
     system_load_scale.to_sql('system_load_scale', db_engine, if_exists='append')
+
+def interconnect():
+    # also see database/build_database/shared_tables.py for code to fill in
+    # project.interconnect_id, project.connect_distance_km and project.connect_cost_per_mw
+    # based on this table
+    # note: we could eventually add interconnect-specific connection costs here, 
+    # to be used instead of generic project interconnection costs; in that case
+    # the code in shared_tables.calculate_interconnect_costs() would also need 
+    # to be updated
+    execute("""
+        DROP TABLE IF EXISTS interconnect;
+        CREATE TABLE interconnect (
+            interconnect_id integer PRIMARY KEY NOT NULL,
+            county text,
+            latitude float,
+            longitude float
+        );
+        ALTER TABLE interconnect OWNER TO admin;
+        -- At some point interconnect was filled in with the equivalent of the 
+        -- following command. The original code is missing, but these appear to be 
+        -- the population-weighted centers of each county.
+        INSERT INTO interconnect (interconnect_id, county, latitude, longitude) VALUES 
+            (1, 'Honolulu', 21.372464, -157.913673),
+            (2, 'Hawaii', 19.672837, -155.421895),
+            (3, 'Maui', 20.863747, -156.493816),
+            (4, 'Kauai', 22.021022, -159.442112),
+            (5, 'Kalawao', 21.188495, -156.979972);
+    """)
 
 
 if __name__ == "__main__":

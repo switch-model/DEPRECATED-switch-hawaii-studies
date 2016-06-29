@@ -1418,3 +1418,21 @@ update existing_plants_gen_tech as t
     set max_age = p.max_age
     from (select technology, max(max_age) as max_age from existing_plants group by 1) as p
     where t.technology = p.technology;
+
+-- added by Matthias Fripp 6/25/16
+-- Kalaeloa plant reports very low heat rate because they apportion fuel between
+-- power and steam; however, the cost they charge HECO is probably more closely
+-- tied to the full fuel consumption, with steam as a byproduct. This will be 
+-- especially true in the future when island oil demand is lower and the refinery 
+-- they serve may be closed; it also matches the fact that Kalaeloa ramps according
+-- to system requirements (at least in the HNEI RPS Study from 2015), rather than
+-- simply following steam demand for the refinery.
+-- average heat rate is calculated from total fuel consumption and total electricity
+-- production in EIA form 923 for 2014 (plant ID 54646). This also matches closely with
+-- Switch-Hawaii/ge_validation/source_data/HSIS Appendix A Production Cost Database for Baseline System.xlsx
+update existing_plants
+    set heat_rate=8645
+    where technology = 'Kalaeloa_107_MW_CC_cogen';
+update existing_plants_gen_tech
+    set baseload=0, cogen=0
+    where technology = 'Kalaeloa_107_MW_CC_cogen';

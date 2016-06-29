@@ -584,6 +584,30 @@ insert into study_periods
     where time_sample='rps_fast_mini'
     order by 2;
 
+-- two-period study for considering early actions
+delete from study_date where time_sample='2020_2025';
+insert into study_date (period, study_date, month_of_year, date, 
+    hours_in_sample, time_sample, ts_num_tps, ts_duration_of_tp, ts_scale_to_period)
+    select period, study_date, month_of_year, date,
+        hours_in_sample, 
+        '2020_2025' as time_sample,
+        ts_num_tps, ts_duration_of_tp, ts_scale_to_period
+     from study_date where time_sample='rps_fast' and period in (2020, 2025)
+     order by period, month_of_year, hours_in_sample desc;
+
+delete from study_hour where time_sample='2020_2025';
+insert into study_hour (study_date, study_hour, hour_of_day, date_time, time_sample)
+  select h.study_date, study_hour, hour_of_day, date_time, d.time_sample
+  from study_hour h 
+  join study_date d on (d.time_sample='2020_2025' and d.study_date=h.study_date)
+  where h.time_sample = 'rps_fast' 
+  order by period, month_of_year, hours_in_sample desc, hour_of_day;
+
+delete from study_periods where time_sample='2020_2025';
+insert into study_periods
+    select distinct time_sample, period from study_date
+    where time_sample='2020_2025'
+    order by 2;
 
 -- tiny study for testing iterative approaches
 delete from study_date where time_sample='tiny';

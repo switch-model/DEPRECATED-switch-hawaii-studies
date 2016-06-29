@@ -118,6 +118,7 @@ db_engine = sqlalchemy.create_engine('postgresql://' + switch_host + '/' + switc
 def main():
     tracking_pv()
     distributed_pv()
+    shared_tables.calculate_interconnect_costs()
 
 def tracking_pv():
     # make a list of all available NSRDB data files
@@ -235,7 +236,6 @@ def tracking_pv():
     shared_tables.create_table("project")
     execute("DELETE FROM project WHERE technology IN %s;", [tuple(technologies)])
     project_df.to_sql('project', db_engine, if_exists='append')
-    # TODO: write shared_tables.calculate_interconnect_distances() and call it from here
 
     # retrieve the project IDs (created automatically in the database)
     project_ids = pd.read_sql(
